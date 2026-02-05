@@ -1,0 +1,17 @@
+query CartTransformRunInput {
+  cart {
+    lines {
+      id
+      quantity
+      bundleComponents: attribute(key: "_bundle_components") {
+        value
+      }
+      bundleId: attribute(key: "_bundle_id") {
+        value
+      }
+      bundleVersion: attribute(key: "_bundle_version") {
+        value
+      }
+    }
+  }
+}

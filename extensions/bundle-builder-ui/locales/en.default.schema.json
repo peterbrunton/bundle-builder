@@ -1,0 +1,15 @@
+{
+  "bundle_builder": {
+    "name": "Bundle builder",
+    "settings": {
+      "heading": "Heading",
+      "description": "Description",
+      "full_products": "Full-size products",
+      "small_products": "Small products",
+      "min_full": "Minimum full-size items",
+      "max_full": "Maximum full-size items",
+      "min_small": "Minimum small items",
+      "max_small": "Maximum small items"
+    }
+  }
+}

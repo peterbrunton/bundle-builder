@@ -1,0 +1,18 @@
+{
+  "bundle_builder": {
+    "default_heading": "Build your bundle",
+    "default_description": "Choose your items and unlock your savings.",
+    "full_title": "Full-size items",
+    "full_rule": "Choose {{ min }} to {{ max }}",
+    "small_title": "Small items",
+    "small_rule": "Choose {{ min }} to {{ max }}",
+    "empty_full": "Add full-size products in the app block settings.",
+    "empty_small": "Add small products in the app block settings.",
+    "add": "Add",
+    "remove": "Remove",
+    "status_idle": "Select items to build your bundle",
+    "status_ready": "Ready to build",
+    "status_invalid": "Bundle requirements not met",
+    "cta_commit": "Add bundle to cart"
+  }
+}

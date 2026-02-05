@@ -1,0 +1,224 @@
+{%- assign heading = block.settings.heading -%}
+{%- if heading == blank -%}
+  {%- assign heading = 'bundle_builder.default_heading' | t -%}
+{%- endif -%}
+{%- assign description = block.settings.description -%}
+{%- if description == blank -%}
+  {%- assign description = 'bundle_builder.default_description' | t -%}
+{%- endif -%}
+{%- assign parent_product = block.settings.parent_product -%}
+{%- assign parent_variant_id = '' -%}
+{%- if parent_product != blank and parent_product.selected_or_first_available_variant != blank -%}
+  {%- assign parent_variant_id = parent_product.selected_or_first_available_variant.id -%}
+{%- endif -%}
+
+<div
+  class="bundle-builder"
+  data-bundle-version="v1"
+  data-min-full="{{ block.settings.min_full }}"
+  data-max-full="{{ block.settings.max_full }}"
+  data-min-small="{{ block.settings.min_small }}"
+  data-max-small="{{ block.settings.max_small }}"
+  data-add-text="{{ 'bundle_builder.add' | t | escape }}"
+  data-remove-text="{{ 'bundle_builder.remove' | t | escape }}"
+  data-parent-variant-id="{{ parent_variant_id }}"
+>
+  <div class="bundle-builder__header">
+    <h2 class="bundle-builder__title">{{ heading | escape }}</h2>
+    <p class="bundle-builder__description">{{ description | escape }}</p>
+  </div>
+
+  <div class="bundle-builder__body">
+    <div class="bundle-builder__panels">
+      <div class="bundle-builder__panel">
+        <div class="bundle-builder__panel-header">
+          <h3 class="bundle-builder__panel-title">{{ 'bundle_builder.full_title' | t }}</h3>
+          <span class="bundle-builder__panel-subtitle">
+            {{ 'bundle_builder.full_rule' | t: min: block.settings.min_full, max: block.settings.max_full }}
+          </span>
+        </div>
+        <ul class="bundle-builder__list" data-role-list="full">
+          {%- for product in block.settings.full_products -%}
+            {%- assign variant = product.selected_or_first_available_variant -%}
+            <li
+              class="bundle-builder__item"
+              data-variant-id="{{ variant.id }}"
+              data-role="full"
+              data-price="{{ variant.price | divided_by: 100.0 }}"
+              data-price-cents="{{ variant.price }}"
+            >
+              <div class="bundle-builder__item-main">
+                {%- if product.featured_image -%}
+                  <img
+                    width="100"
+                    height="100"
+                    class="bundle-builder__item-image"
+                    src="{{ product.featured_image | image_url: width: 100, height: 100, crop: 'center' }}"
+                    alt="{{ product.title | escape }}"
+                    loading="lazy"
+                  >
+                {%- endif -%}
+                <div class="bundle-builder__item-info">
+                  <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
+                  <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
+                  <button type="button" class="bundle-builder__item-toggle" data-action="toggle">
+                    {{ 'bundle_builder.add' | t }}
+                  </button>
+                </div>
+              </div>
+            </li>
+          {%- else -%}
+            <li class="bundle-builder__empty">{{ 'bundle_builder.empty_full' | t }}</li>
+          {%- endfor -%}
+        </ul>
+      </div>
+
+      <div class="bundle-builder__panel">
+        <div class="bundle-builder__panel-header">
+          <h3 class="bundle-builder__panel-title">{{ 'bundle_builder.small_title' | t }}</h3>
+          <span class="bundle-builder__panel-subtitle">
+            {{ 'bundle_builder.small_rule' | t: min: block.settings.min_small, max: block.settings.max_small }}
+          </span>
+        </div>
+        <ul class="bundle-builder__list" data-role-list="small">
+          {%- for product in block.settings.small_products -%}
+            {%- assign variant = product.selected_or_first_available_variant -%}
+            <li
+              class="bundle-builder__item"
+              data-variant-id="{{ variant.id }}"
+              data-role="small"
+              data-price="{{ variant.price | divided_by: 100.0 }}"
+              data-price-cents="{{ variant.price }}"
+            >
+              <div class="bundle-builder__item-main">
+                {%- if product.featured_image -%}
+                  <img
+                    width="100"
+                    height="100"
+                    class="bundle-builder__item-image"
+                    src="{{ product.featured_image | image_url: width: 100, height: 100, crop: 'center' }}"
+                    alt="{{ product.title | escape }}"
+                    loading="lazy"
+                  >
+                {%- endif -%}
+                <div class="bundle-builder__item-info">
+                  <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
+                  <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
+                  <button type="button" class="bundle-builder__item-toggle" data-action="toggle">
+                    {{ 'bundle_builder.add' | t }}
+                  </button>
+                </div>
+              </div>
+            </li>
+          {%- else -%}
+            <li class="bundle-builder__empty">{{ 'bundle_builder.empty_small' | t }}</li>
+          {%- endfor -%}
+        </ul>
+      </div>
+    </div>
+
+    <div class="bundle-builder__footer">
+      <div class="bundle-builder__preview">
+        <div class="bundle-builder__preview-header">
+          <span class="bundle-builder__preview-title">Your bundle</span>
+          <span class="bundle-builder__preview-count" data-bundle-count>0</span>
+        </div>
+        <div class="bundle-builder__preview-grid" data-bundle-preview></div>
+      </div>
+
+      <div class="bundle-builder__offers">
+        <p class="bundle-builder__offers-title">Bundle offers</p>
+        <ul class="bundle-builder__offers-list">
+          <li data-tier="10">Pick 1 full + 2 small → 10% off</li>
+          <li data-tier="15">Pick 1 full + 4 small → 15% off</li>
+          <li data-tier="20">Pick 2 full + 4 small → 20% off</li>
+        </ul>
+      </div>
+
+      <div
+        class="bundle-builder__status"
+        data-bundle-status
+        data-ready-text="{{ 'bundle_builder.status_ready' | t | escape }}"
+        data-invalid-text="{{ 'bundle_builder.status_invalid' | t | escape }}"
+      >
+        {{ 'bundle_builder.status_idle' | t }}
+      </div>
+      <button type="button" class="bundle-builder__cta" data-bundle-action="commit">
+        {{ 'bundle_builder.cta_commit' | t }}
+      </button>
+    </div>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "t:bundle_builder.name",
+  "target": "section",
+  "stylesheet": "bundle-builder.css",
+  "javascript": "bundle-builder.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "t:bundle_builder.settings.heading",
+      "default": "Build your bundle"
+    },
+    {
+      "type": "textarea",
+      "id": "description",
+      "label": "t:bundle_builder.settings.description",
+      "default": "Choose your items and unlock your savings."
+    },
+    {
+      "type": "product_list",
+      "id": "full_products",
+      "label": "t:bundle_builder.settings.full_products"
+    },
+    {
+      "type": "product_list",
+      "id": "small_products",
+      "label": "t:bundle_builder.settings.small_products"
+    },
+    {
+      "type": "range",
+      "id": "min_full",
+      "label": "t:bundle_builder.settings.min_full",
+      "default": 1,
+      "min": 1,
+      "max": 3
+    },
+    {
+      "type": "range",
+      "id": "max_full",
+      "label": "t:bundle_builder.settings.max_full",
+      "default": 2,
+      "min": 1,
+      "max": 3
+    },
+    {
+      "type": "range",
+      "id": "min_small",
+      "label": "t:bundle_builder.settings.min_small",
+      "default": 0,
+      "min": 0,
+      "max": 4
+    },
+    {
+      "type": "range",
+      "id": "max_small",
+      "label": "t:bundle_builder.settings.max_small",
+      "default": 4,
+      "min": 0,
+      "max": 4
+    },
+    {
+      "type": "product",
+      "id": "parent_product",
+      "label": "Bundle parent product"
+    }
+  ],
+  "enabled_on": {
+    "templates": ["product", "collection", "index", "page"]
+  }
+}
+{% endschema %}
