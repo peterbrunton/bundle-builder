@@ -170,8 +170,13 @@
 
                         assign bundle_percent = ''
                         if bundle_discount_label != blank
-                          assign bundle_percent = bundle_discount_label | split: ' ' | last
-                          assign bundle_percent = bundle_percent | remove: 'off' | remove: 'Off' | remove: '%'
+                          if bundle_discount_label contains '%'
+                            assign bundle_percent = bundle_discount_label | split: '%' | first | split: ' ' | last
+                          else
+                            assign bundle_percent = bundle_discount_label | split: ' ' | last
+                            assign bundle_percent = bundle_percent | remove: 'off' | remove: 'Off'
+                          endif
+                          assign bundle_percent = bundle_percent | remove: '%'
                         endif
                       -%}
 
@@ -186,25 +191,6 @@
                     <p>
                       {{ item.product.vendor }}
                     </p>
-                  {% endif %}
-
-                  {% if item.line_level_discount_allocations.size > 0 %}
-                    <ul
-                      class="cart-items__discounts list-unstyled"
-                      role="list"
-                    >
-                      {%- for discount in item.line_level_discount_allocations -%}
-                        <li class="cart-items__discount-application">
-                          {{ discount.discount_application.title | escape }}
-                        </li>
-                      {%- endfor -%}
-                    </ul>
-                  {% elsif bundle_discount_label != blank %}
-                    <ul class="cart-items__discounts list-unstyled" role="list">
-                      <li class="cart-items__discount-application">
-                        {{ bundle_percent | strip }}% Off
-                      </li>
-                    </ul>
                   {% endif %}
 
                   {%- if item.item_components.size != 0 -%}
@@ -226,6 +212,39 @@
                       {%- endfor -%}
                     </ul>
                   {%- endif -%}
+
+                  {% if item.line_level_discount_allocations.size > 0 %}
+                    <ul
+                      class="list-unstyled cart-items__discount-allocations"
+                      role="list"
+                    >
+                      {%- for discount in item.line_level_discount_allocations -%}
+                        <li class="cart-items__discount-application">
+                          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M13.25 4.25H11.2759C10.4606 4.25 9.68048 4.58181 9.11496 5.16908L4.86136 9.58629C4.10538 10.3713 4.11713 11.6171 4.88778 12.3878L7.78569 15.2857C8.46001 15.96 9.55008 15.9703 10.237 15.3088L14.9841 10.7375C15.4735 10.2663 15.75 9.61613 15.75 8.93673V6.75C15.75 5.36929 14.6307 4.25 13.25 4.25Z" stroke="currentColor" stroke-width="var(--icon-stroke-width)" stroke-linecap="round" stroke-linejoin="round"></path>
+                            <circle cx="13" cy="7" r="1" fill="currentColor"></circle>
+                          </svg>
+                          <span>{{ discount.discount_application.title | escape }}</span>
+                        </li>
+                      {%- endfor -%}
+                    </ul>
+                  {% elsif bundle_discount_label != blank %}
+                    <ul class="list-unstyled cart-items__discount-allocations" role="list">
+                      <li class="cart-items__discount-application">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M13.25 4.25H11.2759C10.4606 4.25 9.68048 4.58181 9.11496 5.16908L4.86136 9.58629C4.10538 10.3713 4.11713 11.6171 4.88778 12.3878L7.78569 15.2857C8.46001 15.96 9.55008 15.9703 10.237 15.3088L14.9841 10.7375C15.4735 10.2663 15.75 9.61613 15.75 8.93673V6.75C15.75 5.36929 14.6307 4.25 13.25 4.25Z" stroke="currentColor" stroke-width="var(--icon-stroke-width)" stroke-linecap="round" stroke-linejoin="round"></path>
+                          <circle cx="13" cy="7" r="1" fill="currentColor"></circle>
+                        </svg>
+                        <span>
+                          {%- if bundle_percent != blank -%}
+                            {{ bundle_percent | strip }}% Off
+                          {%- else -%}
+                            {{ bundle_discount_label | escape }}
+                          {%- endif -%}
+                        </span>
+                      </li>
+                    </ul>
+                  {% endif %}
 
                   {%- if item.product.has_only_default_variant == false
                     or item.properties.size != 0
@@ -521,6 +540,15 @@
 
   .cart-items__discounts {
     color: rgb(var(--color-foreground-rgb) / var(--opacity-70));
+  }
+
+  .cart-items__discount-application {
+    background: rgba(239, 149, 207, 0.15);
+    padding: var(--padding-xs);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--gap-2xs);
+    border-radius: 5px;
   }
 
   .cart-items__details * {

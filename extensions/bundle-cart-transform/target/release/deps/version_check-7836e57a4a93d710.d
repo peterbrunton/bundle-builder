@@ -1,0 +1,10 @@
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/release/deps/libversion_check-7836e57a4a93d710.rmeta: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/version.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/channel.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/date.rs
+
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/release/deps/libversion_check-7836e57a4a93d710.rlib: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/version.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/channel.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/date.rs
+
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/release/deps/version_check-7836e57a4a93d710.d: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/version.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/channel.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/date.rs
+
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/lib.rs:
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/version.rs:
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/channel.rs:
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/version_check-0.9.5/src/date.rs:

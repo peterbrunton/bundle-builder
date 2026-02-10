@@ -1,0 +1,9 @@
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/wasm32-wasi/release/deps/libshopify_function-72eb467ace4129ad.rmeta: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars/decimal.rs
+
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/wasm32-wasi/release/deps/libshopify_function-72eb467ace4129ad.rlib: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars/decimal.rs
+
+/Users/peterbrunton/Dev/2026/Apps/bundle-builder/bundle-builder/extensions/bundle-cart-transform/target/wasm32-wasi/release/deps/shopify_function-72eb467ace4129ad.d: /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/lib.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars.rs /Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars/decimal.rs
+
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/lib.rs:
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars.rs:
+/Users/peterbrunton/.cargo/registry/src/index.crates.io-6f17d22bba15001f/shopify_function-0.6.0/src/scalars/decimal.rs:

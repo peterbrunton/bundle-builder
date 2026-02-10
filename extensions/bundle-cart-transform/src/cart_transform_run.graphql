@@ -6,12 +6,26 @@ query CartTransformRunInput {
       bundleComponents: attribute(key: "_bundle_components") {
         value
       }
+      bundleDiscountedCents: attribute(key: "_bundle_discounted_cents") {
+        value
+      }
+      bundleCompareAtCents: attribute(key: "_bundle_compare_at_cents") {
+        value
+      }
+      bundleSignature: attribute(key: "_bundle_signature") {
+        value
+      }
       bundleId: attribute(key: "_bundle_id") {
         value
       }
       bundleVersion: attribute(key: "_bundle_version") {
         value
       }
+    }
+  }
+  cartTransform {
+    metafield(namespace: "bundle_builder", key: "signature_secret") {
+      value
     }
   }
 }

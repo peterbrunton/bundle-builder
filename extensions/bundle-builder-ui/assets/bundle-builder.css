@@ -4,6 +4,11 @@
   --bb-accent: #0f4c3a;
   --bb-muted: #6b5f52;
   --bb-border: #d7c8b5;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
   background: radial-gradient(140% 120% at 0% 0%, #fff8ee 0%, var(--bb-bg) 55%, #efe3d3 100%);
   border: 1px solid var(--bb-border);
   border-radius: 16px;
@@ -11,6 +16,17 @@
   color: var(--bb-ink);
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
   box-shadow: 0 12px 30px rgba(38, 29, 18, 0.08);
+}
+
+/* Ensure the app block stretches within flex-based section wrappers */
+.shopify-app-block[data-block-handle='bundle-builder'] {
+  width: 100%;
+  align-self: stretch;
+}
+
+.shopify-app-block[data-block-handle='bundle-builder'] .bundle-builder {
+  width: 100%;
+  max-width: 100%;
 }
 
 .bundle-builder__header {
@@ -98,11 +114,13 @@
   margin-top: 16px;
   display: grid;
   gap: 16px;
+  width: 100%;
 }
 
 .bundle-builder__panels {
   display: grid;
   gap: 16px;
+  width: 100%;
 }
 
 .bundle-builder__panel {
@@ -110,6 +128,7 @@
   border-radius: 12px;
   padding: 14px;
   background: rgba(255, 255, 255, 0.6);
+  width: 100%;
 }
 
 .bundle-builder__panel-header {
@@ -216,6 +235,18 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .bundle-builder__item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bundle-builder__item-image {
+    width: 100%;
+    max-width: 100px;
+    height: 100px;
+    justify-self: center;
+  }
+
   .bundle-builder__footer {
     position: sticky;
     top: 24px;
@@ -224,6 +255,12 @@
     border: 1px solid rgba(31, 27, 22, 0.08);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.9);
+  }
+}
+
+@media (min-width: 1200px) {
+  .bundle-builder__list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 .bundle-builder__status {
@@ -263,6 +300,15 @@
 .bundle-builder__cta:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 8px 16px rgba(15, 76, 58, 0.2);
+}
+
+.bundle-builder__proxy-warning {
+  background: rgba(255, 92, 92, 0.12);
+  border: 1px solid rgba(255, 92, 92, 0.3);
+  color: rgb(120, 24, 24);
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
 }
 
 @media (max-width: 700px) {
