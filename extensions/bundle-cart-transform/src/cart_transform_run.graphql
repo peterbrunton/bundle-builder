@@ -1,4 +1,4 @@
-query CartTransformRunInput {
+query Input {
   cart {
     lines {
       id
@@ -18,7 +18,13 @@ query CartTransformRunInput {
       bundleId: attribute(key: "_bundle_id") {
         value
       }
+      bundleRulebook: attribute(key: "_bundle_rulebook") {
+        value
+      }
       bundleVersion: attribute(key: "_bundle_version") {
+        value
+      }
+      bundleSignatureVersion: attribute(key: "_bundle_signature_version") {
         value
       }
     }

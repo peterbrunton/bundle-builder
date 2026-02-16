@@ -1,0 +1,21 @@
+{
+  "cart": {
+    "lines": [
+      {
+        "id": "gid://shopify/CartLine/1",
+        "quantity": 1,
+        "bundleComponents": null,
+        "bundleDiscountedCents": null,
+        "bundleCompareAtCents": null,
+        "bundleSignature": null,
+        "bundleId": null,
+        "bundleRulebook": null,
+        "bundleVersion": null,
+        "bundleSignatureVersion": null
+      }
+    ]
+  },
+  "cartTransform": {
+    "metafield": null
+  }
+}

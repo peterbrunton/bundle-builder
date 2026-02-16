@@ -37,6 +37,20 @@
 
 <div
   class="bundle-builder"
+  style="
+    --bb-bg: {{ block.settings.background_color }};
+    --bb-surface: {{ block.settings.surface_color }};
+    --bb-surface-soft: {{ block.settings.surface_soft_color }};
+    --bb-ink: {{ block.settings.text_color }};
+    --bb-muted: {{ block.settings.muted_text_color }};
+    --bb-accent: {{ block.settings.accent_color }};
+    --bb-button-ink: {{ block.settings.button_text_color }};
+    --bb-border: {{ block.settings.border_color }};
+    --bb-radius: {{ block.settings.corner_radius }}px;
+    --bb-shadow-opacity: {{ block.settings.shadow_opacity | divided_by: 100.0 }};
+    --bb-heading-font: {{ block.settings.heading_font }};
+    --bb-body-font: {{ block.settings.body_font }};
+  "
   data-bundle-version="v1"
   data-bundle-config-id="{{ selected_rulebook.id | default: 'bundle-config-1' }}"
   data-categories="{% if selected_rulebook != blank %}{{ selected_rulebook.categories | json | escape }}{% else %}{{ fallback_categories_json | escape }}{% endif %}"
@@ -227,6 +241,88 @@
   "stylesheet": "bundle-builder.css",
   "javascript": "bundle-builder.js",
   "settings": [
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Background color",
+      "default": "#ECECEC"
+    },
+    {
+      "type": "color",
+      "id": "surface_color",
+      "label": "Panel color",
+      "default": "#F4F4F4"
+    },
+    {
+      "type": "color",
+      "id": "surface_soft_color",
+      "label": "Sub-panel color",
+      "default": "#FAFAFA"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Heading text color",
+      "default": "#111315"
+    },
+    {
+      "type": "color",
+      "id": "muted_text_color",
+      "label": "Body text color",
+      "default": "#4D4D4D"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Button color",
+      "default": "#111315"
+    },
+    {
+      "type": "color",
+      "id": "button_text_color",
+      "label": "Button text color",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border color",
+      "default": "#DCDCDC"
+    },
+    {
+      "type": "range",
+      "id": "corner_radius",
+      "label": "Corner radius",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "default": 4
+    },
+    {
+      "type": "range",
+      "id": "shadow_opacity",
+      "label": "Shadow opacity",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "default": 8
+    },
+    {
+      "type": "text",
+      "id": "heading_font",
+      "label": "Heading font stack",
+      "default": "\"Oswald\", \"Arial Narrow\", sans-serif"
+    },
+    {
+      "type": "text",
+      "id": "body_font",
+      "label": "Body font stack",
+      "default": "\"Helvetica Neue\", Helvetica, Arial, sans-serif"
+    },
     {
       "type": "text",
       "id": "heading",

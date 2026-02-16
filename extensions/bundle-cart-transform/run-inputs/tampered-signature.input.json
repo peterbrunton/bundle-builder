@@ -1,0 +1,39 @@
+{
+  "cart": {
+    "lines": [
+      {
+        "id": "gid://shopify/CartLine/1",
+        "quantity": 1,
+        "bundleComponents": {
+          "value": "[{\"id\":\"gid://shopify/ProductVariant/111\",\"quantity\":1,\"role\":\"full\"}]"
+        },
+        "bundleDiscountedCents": {
+          "value": "1"
+        },
+        "bundleCompareAtCents": {
+          "value": "1000"
+        },
+        "bundleSignature": {
+          "value": "c292190d82e2e06e6cfc6d1b01e0591e8974990454935357e08ba74f19dbd04d"
+        },
+        "bundleId": {
+          "value": "bundle_test_1"
+        },
+        "bundleRulebook": {
+          "value": "bundle-config-1"
+        },
+        "bundleVersion": {
+          "value": "v1"
+        },
+        "bundleSignatureVersion": {
+          "value": "v2"
+        }
+      }
+    ]
+  },
+  "cartTransform": {
+    "metafield": {
+      "value": "test-secret"
+    }
+  }
+}

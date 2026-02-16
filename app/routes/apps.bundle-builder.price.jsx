@@ -1,5 +1,9 @@
 import crypto from "crypto";
 import { authenticate } from "../shopify.server";
+import {
+  buildBundleSignaturePayload,
+  SIGNATURE_VERSION,
+} from "../utils/bundle-signature.server";
 
 const json = (data, init) =>
   new Response(JSON.stringify(data), {
@@ -393,11 +397,12 @@ export const action = async ({ request }) => {
     );
     const discountLabel = percent ? `Bundle ${percent}% off` : "";
 
-    const signaturePayload = JSON.stringify({
-      bundle_id: bundleId,
-      rulebook_id: rulebook.id,
+    const signaturePayload = buildBundleSignaturePayload({
+      bundleId,
+      rulebookId: rulebook.id,
       components,
-      discounted_cents: discountedCents,
+      discountedCents,
+      signatureVersion: SIGNATURE_VERSION,
     });
     const signature = crypto
       .createHmac("sha256", secret)
@@ -410,6 +415,7 @@ export const action = async ({ request }) => {
       discountedCents,
       discountLabel,
       signature,
+      signatureVersion: SIGNATURE_VERSION,
       pathPrefix,
     });
   } catch (error) {

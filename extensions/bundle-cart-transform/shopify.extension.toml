@@ -10,11 +10,11 @@ description = "t:description"
   [[extensions.targeting]]
   target = "cart.transform.run"
   input_query = "src/cart_transform_run.graphql"
-  export = "cart-transform-run"
+  export = "cart_transform_run"
 
   [extensions.build]
-  command = ""
-  path = "dist/function.wasm"
+  command = "cargo build --target=wasm32-wasi --release"
+  path = "target/wasm32-wasi/release/bundle_cart_transform.wasm"
 
   [extensions.ui.paths]
   create = "/"
