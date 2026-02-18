@@ -16,7 +16,7 @@ api_version = "2026-04"
 scopes = "read_products,write_cart_transforms,write_products,write_app_proxy"
 
 [auth]
-redirect_urls = [ "https://build-your-own-bundle.fly.dev/api/auth" ]
+redirect_urls = [ "https://build-your-own-bundle.fly.dev/auth/callback" ]
 
 [app_proxy]
 url = "/apps/bundle-builder-1"

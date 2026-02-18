@@ -85,12 +85,29 @@ const normalizeRulebooks = (rulebooks) => {
   if (!Array.isArray(rulebooks) || rulebooks.length === 0) {
     return [DEFAULT_RULEBOOK];
   }
+  const usedIds = new Set();
+  const nextUniqueId = (rawId, index) => {
+    const base = String(rawId || "").trim() || `bundle-config-${index + 1}`;
+    if (!usedIds.has(base)) {
+      usedIds.add(base);
+      return base;
+    }
+    let counter = 2;
+    let candidate = `${base}-${counter}`;
+    while (usedIds.has(candidate)) {
+      counter += 1;
+      candidate = `${base}-${counter}`;
+    }
+    usedIds.add(candidate);
+    return candidate;
+  };
+
   const normalized = rulebooks
     .map((rulebook, index) => {
       const categories = coerceCategories(rulebook?.categories);
       const tiers = coerceTierRules(rulebook?.tiers, categories);
       return {
-        id: String(rulebook?.id || "").trim() || `bundle-config-${index + 1}`,
+        id: nextUniqueId(rulebook?.id, index),
         isDefault: Boolean(rulebook?.isDefault),
         categories,
         tiers,
@@ -127,6 +144,17 @@ const deriveRulebooksFallback = (categories, tiers) => {
       tiers,
     },
   ]);
+};
+
+const getNextRulebookId = (rulebooks) => {
+  const used = new Set((rulebooks || []).map((rulebook) => String(rulebook?.id || "").trim()).filter(Boolean));
+  let counter = 1;
+  let candidate = `bundle-config-${counter}`;
+  while (used.has(candidate)) {
+    counter += 1;
+    candidate = `bundle-config-${counter}`;
+  }
+  return candidate;
 };
 
 export const loader = async ({ request }) => {
@@ -179,54 +207,78 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const form = await request.formData();
-  const rawRulebooks = form.get("rulebooks") || "[]";
-  let rulebooks;
   try {
-    rulebooks = normalizeRulebooks(JSON.parse(String(rawRulebooks)));
-  } catch {
-    rulebooks = [DEFAULT_RULEBOOK];
-  }
+    const { admin } = await authenticate.admin(request);
+    const form = await request.formData();
+    const rawRulebooks = form.get("rulebooks") || "[]";
+    let rulebooks;
+    try {
+      rulebooks = normalizeRulebooks(JSON.parse(String(rawRulebooks)));
+    } catch {
+      return json(
+        {
+          ok: false,
+          errors: [{ message: "Invalid rulebooks payload. Nothing was saved." }],
+        },
+        { status: 400 },
+      );
+    }
 
-  const shopId = await admin
-    .graphql(`#graphql query { shop { id } }`)
-    .then((r) => r.json())
-    .then((r) => r?.data?.shop?.id);
-  if (!shopId) {
-    return json({ ok: false, errors: [{ message: "Shop ID not found" }] }, { status: 500 });
-  }
+    const shopId = await admin
+      .graphql(
+        `#graphql
+          query ShopId {
+            shop {
+              id
+            }
+          }`,
+      )
+      .then((r) => r.json())
+      .then((r) => r?.data?.shop?.id);
+    if (!shopId) {
+      return json({ ok: false, errors: [{ message: "Shop ID not found" }] }, { status: 500 });
+    }
 
-  const response = await admin.graphql(
-    `#graphql
-      mutation SaveBundleBuilderSettings($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          userErrors {
-            field
-            message
+    const response = await admin.graphql(
+      `#graphql
+        mutation SaveBundleBuilderSettings($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            userErrors {
+              field
+              message
+            }
           }
-        }
-      }`,
-    {
-      variables: {
-        metafields: [
-          {
-            namespace: "bundle_builder",
-            key: "rulebooks",
-            ownerId: shopId,
-            type: "json",
-            value: JSON.stringify(rulebooks),
-          },
-        ],
+        }`,
+      {
+        variables: {
+          metafields: [
+            {
+              namespace: "bundle_builder",
+              key: "rulebooks",
+              ownerId: shopId,
+              type: "json",
+              value: JSON.stringify(rulebooks),
+            },
+          ],
+        },
       },
-    },
-  );
-  const data = await response.json();
-  return json({
-    ok: true,
-    rulebooks,
-    errors: data?.data?.metafieldsSet?.userErrors || [],
-  });
+    );
+    const data = await response.json();
+    return json({
+      ok: true,
+      rulebooks,
+      errors: data?.data?.metafieldsSet?.userErrors || [],
+    });
+  } catch (error) {
+    console.error("[settings-save] action failed", error);
+    return json(
+      {
+        ok: false,
+        errors: [{ message: "Failed to save bundle settings. Check server logs." }],
+      },
+      { status: 500 },
+    );
+  }
 };
 
 export default function SettingsPage() {
@@ -270,7 +322,7 @@ export default function SettingsPage() {
     setLocalRulebooks((current) => [
       ...current,
       {
-        id: `bundle-config-${current.length + 1}`,
+        id: getNextRulebookId(current),
         isDefault: false,
         categories: [...DEFAULT_RULEBOOK.categories],
         tiers: [...DEFAULT_RULEBOOK.tiers],

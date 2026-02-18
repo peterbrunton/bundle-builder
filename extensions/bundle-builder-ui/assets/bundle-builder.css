@@ -57,11 +57,12 @@
 
 .bundle-builder__offers-list {
   margin: 0;
-  padding: 0 0 0 18px;
+  list-style-type: none;
   display: grid;
   gap: 4px;
   color: var(--bb-muted);
   font-size: 0.9rem;
+  padding: 0 0 0 0;
 }
 
 .bundle-builder__offers-list li[data-active="true"] {
@@ -261,7 +262,7 @@
 
   .bundle-builder__footer {
     position: sticky;
-    top: 24px;
+    top: 100px;
     align-self: start;
     padding: 16px;
     border: 1px solid var(--bb-border);

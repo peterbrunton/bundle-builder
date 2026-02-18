@@ -7,11 +7,11 @@ app = 'build-your-own-bundle'
 primary_region = 'fra'
 
 [http_service]
-  internal_port = 8080
+  internal_port = 3000
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
@@ -21,4 +21,4 @@ primary_region = 'fra'
 
 [[mounts]]
   source = "bundle_data"
-  destination = "/app/prisma"
+  destination = "/data"

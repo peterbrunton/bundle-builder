@@ -190,7 +190,7 @@
 
       <div class="bundle-builder__offers">
         <p class="bundle-builder__offers-title">Bundle offers</p>
-        {%- assign tiers = selected_rulebook.tiers | sort: "percent" | reverse -%}
+        {%- assign tiers = selected_rulebook.tiers | sort: "percent" -%}
         {%- if tiers and tiers.size > 0 and selected_rulebook != blank -%}
           {%- assign tiers_json = tiers | json | escape -%}
           <ul class="bundle-builder__offers-list" data-bundle-tiers="{{ tiers_json }}">

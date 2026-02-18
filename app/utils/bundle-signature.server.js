@@ -23,6 +23,7 @@ export const canonicalizeSignatureComponents = (components) =>
         id,
         quantity: Math.max(1, toPositiveInt(component?.quantity, 1)),
         role: String(component?.role || "component"),
+        unit_cents: Math.max(0, toPositiveInt(component?.unitCents, 0)),
       };
     })
     .filter(Boolean)

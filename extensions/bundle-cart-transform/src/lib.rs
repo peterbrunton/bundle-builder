@@ -11,6 +11,7 @@ struct BundleComponent {
     id: String,
     quantity: i32,
     role: String,
+    unit_cents: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,6 +19,8 @@ struct RawBundleComponent {
     id: Option<String>,
     quantity: Option<i32>,
     role: Option<String>,
+    #[serde(default, alias = "unitCents")]
+    unit_cents: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -91,7 +94,6 @@ fn cart_transform_run(
                 .map(|value| value.as_str())
                 .unwrap_or("0"),
         );
-
         let signature_valid = verify_signature(
             &secret,
             &signature,
@@ -102,17 +104,44 @@ fn cart_transform_run(
             discounted_cents,
         );
 
-        let total_component_qty: i32 = components.iter().map(|component| component.quantity).sum();
-        let fallback_unit_amount = if signature_valid && discounted_cents > 0 && total_component_qty > 0 {
-            let discounted_amount = (discounted_cents as f64) / 100.0;
-            Some(discounted_amount / (total_component_qty as f64))
+        let base_totals: Vec<i64> = components
+            .iter()
+            .map(|component| {
+                let component_qty = i64::from(component.quantity.max(1));
+                component.unit_cents.max(0) * component_qty * line_quantity
+            })
+            .collect();
+        let expanded_quantities: Vec<i64> = components
+            .iter()
+            .map(|component| i64::from(component.quantity.max(1)) * line_quantity)
+            .collect();
+        let target_total_cents = discounted_cents.max(0) * line_quantity;
+        let allocated_totals = if signature_valid {
+            allocate_component_totals(&base_totals, target_total_cents)
         } else {
             None
         };
 
         let mut expanded_items: Vec<cart_transform_run::output::ExpandedItem> = Vec::new();
-        for component in &components {
-            let quantity = i64::from(component.quantity) * line_quantity;
+        for (index, component) in components.iter().enumerate() {
+            let quantity = expanded_quantities[index];
+            let price = allocated_totals
+                .as_ref()
+                .and_then(|totals| totals.get(index).copied())
+                .and_then(|total_cents| {
+                    if quantity <= 0 {
+                        return None;
+                    }
+                    let amount = round_to_cents((total_cents as f64) / (quantity as f64) / 100.0);
+                    Some(cart_transform_run::output::ExpandedItemPriceAdjustment {
+                        adjustment:
+                            cart_transform_run::output::ExpandedItemPriceAdjustmentValue::FixedPricePerUnit(
+                                cart_transform_run::output::ExpandedItemFixedPricePerUnitAdjustment {
+                                    amount: Decimal(amount),
+                                },
+                            ),
+                    })
+                });
             expanded_items.push(cart_transform_run::output::ExpandedItem {
                 merchandise_id: normalize_gid(&component.id),
                 quantity,
@@ -130,15 +159,7 @@ fn cart_transform_run(
                         value: bundle_version.clone(),
                     },
                 ]),
-                price: fallback_unit_amount.map(|amount| {
-                    cart_transform_run::output::ExpandedItemPriceAdjustment {
-                        adjustment: cart_transform_run::output::ExpandedItemPriceAdjustmentValue::FixedPricePerUnit(
-                            cart_transform_run::output::ExpandedItemFixedPricePerUnitAdjustment {
-                                amount: Decimal(round_to_cents(amount)),
-                            },
-                        ),
-                    }
-                }),
+                price,
             });
         }
 
@@ -155,23 +176,6 @@ fn cart_transform_run(
                 title: None,
             },
         ));
-
-        if signature_valid && discounted_cents > 0 {
-            operations.push(cart_transform_run::output::Operation::LineUpdate(
-                cart_transform_run::output::LineUpdateOperation {
-                    cart_line_id: line.id,
-                    image: None,
-                    title: None,
-                    price: Some(cart_transform_run::output::LineUpdateOperationPriceAdjustment {
-                        adjustment: cart_transform_run::output::LineUpdateOperationPriceAdjustmentValue::FixedPricePerUnit(
-                            cart_transform_run::output::LineUpdateOperationFixedPricePerUnitAdjustment {
-                                amount: Decimal(round_to_cents((discounted_cents as f64) / 100.0)),
-                            },
-                        ),
-                    }),
-                },
-            ));
-        }
     }
 
     Ok(cart_transform_run::output::CartTransformRunResult { operations })
@@ -191,6 +195,7 @@ fn parse_components(raw: &str) -> Option<Vec<BundleComponent>> {
                 id,
                 quantity,
                 role: component.role.unwrap_or_else(|| "component".to_string()),
+                unit_cents: component.unit_cents.unwrap_or(0).max(0),
             })
         })
         .collect();
@@ -230,6 +235,41 @@ fn non_negative_int(raw: &str) -> i64 {
 
 fn round_to_cents(amount: f64) -> f64 {
     (amount * 100.0).round() / 100.0
+}
+
+fn allocate_component_totals(base_totals: &[i64], target_total_cents: i64) -> Option<Vec<i64>> {
+    if base_totals.is_empty() || target_total_cents < 0 {
+        return None;
+    }
+    let total_base: i64 = base_totals.iter().copied().sum();
+    if total_base <= 0 {
+        return None;
+    }
+
+    let mut allocations: Vec<i64> = Vec::with_capacity(base_totals.len());
+    let mut remainders: Vec<(usize, i64)> = Vec::with_capacity(base_totals.len());
+    let mut allocated_sum: i64 = 0;
+
+    for (index, base) in base_totals.iter().copied().enumerate() {
+        let numerator = base.saturating_mul(target_total_cents);
+        let floor = numerator / total_base;
+        let remainder = numerator % total_base;
+        allocations.push(floor);
+        remainders.push((index, remainder));
+        allocated_sum += floor;
+    }
+
+    let mut pennies_left = target_total_cents - allocated_sum;
+    remainders.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut cursor = 0usize;
+    while pennies_left > 0 && !remainders.is_empty() {
+        let index = remainders[cursor].0;
+        allocations[index] += 1;
+        pennies_left -= 1;
+        cursor = (cursor + 1) % remainders.len();
+    }
+
+    Some(allocations)
 }
 
 fn build_signature_payload(
@@ -291,11 +331,13 @@ mod tests {
                 id: "gid://shopify/ProductVariant/2".to_string(),
                 quantity: 1,
                 role: "small".to_string(),
+                unit_cents: 1000,
             },
             BundleComponent {
                 id: "gid://shopify/ProductVariant/1".to_string(),
                 quantity: 2,
                 role: "full".to_string(),
+                unit_cents: 5000,
             },
         ];
         let payload = build_signature_payload("v2", "bundle_1", "bundle-config-1", &components, 1234);
@@ -318,6 +360,7 @@ mod tests {
             id: "gid://shopify/ProductVariant/1".to_string(),
             quantity: 1,
             role: "full".to_string(),
+            unit_cents: 5000,
         }];
         let payload = build_signature_payload("v2", "bundle_1", "bundle-config-1", &components, 1000);
         let secret = "top-secret";

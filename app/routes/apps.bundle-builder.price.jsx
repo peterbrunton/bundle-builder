@@ -20,6 +20,7 @@ const normalizeComponents = (components) =>
         id: String(id),
         quantity: Math.max(1, Math.floor(Number(component?.quantity) || 1)),
         role: component?.role || "component",
+        unitCents: Math.max(0, Math.floor(Number(component?.unitCents) || 0)),
       };
     })
     .filter(Boolean);
@@ -131,8 +132,8 @@ const coerceTierRules = (value, categories) => {
   return sanitized.length ? sanitized : DEFAULT_RULEBOOK.tiers;
 };
 
-const getTier = (rules, counts) =>
-  rules.find((rule) =>
+const getTier = (rules, counts) => {
+  const matches = rules.filter((rule) =>
     Object.entries(rule.requirements || {}).every(([key, req]) => {
       const count = counts[key] || 0;
       if (count < (req?.min ?? 0)) return false;
@@ -140,6 +141,12 @@ const getTier = (rules, counts) =>
       return true;
     }),
   );
+
+  return matches.reduce((best, tier) => {
+    if (!best) return tier;
+    return Number(tier?.percent ?? 0) > Number(best?.percent ?? 0) ? tier : best;
+  }, null);
+};
 
 const secretCache = new Map();
 
@@ -161,6 +168,47 @@ const adminGraphqlWithRetry = async (admin, query, options) => {
     await sleep(200 * (attempt + 1));
   }
   throw lastError || new Error("Shopify admin request failed");
+};
+
+const enrichComponentsWithUnitCents = async (admin, components) => {
+  const variantIds = components.map((component) =>
+    component.id.startsWith("gid://")
+      ? component.id
+      : `gid://shopify/ProductVariant/${component.id}`,
+  );
+  const variantResponse = await adminGraphqlWithRetry(
+    admin,
+    `#graphql
+      query VariantPrices($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on ProductVariant {
+            id
+            price
+          }
+        }
+      }`,
+    { variables: { ids: variantIds } },
+  );
+  const variantData = await variantResponse.json();
+  const priceMap = new Map();
+  (variantData?.data?.nodes || []).forEach((node) => {
+    if (node?.id && node?.price != null) {
+      priceMap.set(node.id, node.price);
+    }
+  });
+
+  return components.map((component) => {
+    const gid = component.id.startsWith("gid://")
+      ? component.id
+      : `gid://shopify/ProductVariant/${component.id}`;
+    const price = Number(priceMap.get(gid) || 0);
+    const unitCents = Math.max(0, Math.round(price * 100));
+    return {
+      ...component,
+      id: gid,
+      unitCents,
+    };
+  });
 };
 
 const normalizeRulebooks = (rulebooks) => {
@@ -246,9 +294,19 @@ const getOrCreateSignatureSecret = async (admin, shop) => {
     admin,
     `#graphql
       query CartTransformsWithSecret {
+        shop {
+          id
+          cartTransformId: metafield(namespace: "bundle_builder", key: "cart_transform_id") {
+            value
+          }
+          cartTransformFunctionId: metafield(namespace: "bundle_builder", key: "cart_transform_function_id") {
+            value
+          }
+        }
         cartTransforms(first: 10) {
           nodes {
             id
+            functionId
             metafield(namespace: "bundle_builder", key: "signature_secret") {
               value
             }
@@ -257,7 +315,61 @@ const getOrCreateSignatureSecret = async (admin, shop) => {
       }`,
   );
   const data = await response.json();
-  const cartTransform = data?.data?.cartTransforms?.nodes?.[0];
+  const shopId = data?.data?.shop?.id;
+  const storedTransformId = data?.data?.shop?.cartTransformId?.value || "";
+  const storedFunctionId = data?.data?.shop?.cartTransformFunctionId?.value || "";
+  const cartTransforms = data?.data?.cartTransforms?.nodes || [];
+  let cartTransform =
+    (storedTransformId
+      ? cartTransforms.find((transform) => transform?.id === storedTransformId)
+      : null) ||
+    (storedFunctionId
+      ? cartTransforms.find(
+          (transform) => String(transform?.functionId || "") === String(storedFunctionId),
+        )
+      : null);
+
+  if (!cartTransform && cartTransforms.length === 1) {
+    cartTransform = cartTransforms[0];
+    if (shopId && cartTransform?.id) {
+      await adminGraphqlWithRetry(
+        admin,
+        `#graphql
+          mutation SaveBundleCartTransformPointers($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+        {
+          variables: {
+            metafields: [
+              {
+                namespace: "bundle_builder",
+                key: "cart_transform_id",
+                ownerId: shopId,
+                type: "single_line_text_field",
+                value: String(cartTransform.id),
+              },
+              {
+                namespace: "bundle_builder",
+                key: "cart_transform_function_id",
+                ownerId: shopId,
+                type: "single_line_text_field",
+                value: String(cartTransform.functionId || ""),
+              },
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  if (!cartTransform && cartTransforms.length > 1) {
+    throw new Error("Multiple cart transforms found. Set bundle_builder.cart_transform_id first.");
+  }
   if (!cartTransform?.id) {
     const fallback =
       process.env.BUNDLE_SIGNATURE_SECRET || process.env.SHOPIFY_API_SECRET;
@@ -354,38 +466,10 @@ export const action = async ({ request }) => {
       }
     }
 
-    const variantIds = components.map((component) =>
-      component.id.startsWith("gid://")
-        ? component.id
-        : `gid://shopify/ProductVariant/${component.id}`,
-    );
-    const variantResponse = await adminGraphqlWithRetry(
-      admin,
-      `#graphql
-        query VariantPrices($ids: [ID!]!) {
-          nodes(ids: $ids) {
-            ... on ProductVariant {
-              id
-              price
-            }
-          }
-        }`,
-      { variables: { ids: variantIds } },
-    );
-    const variantData = await variantResponse.json();
-    const priceMap = new Map();
-    (variantData?.data?.nodes || []).forEach((node) => {
-      if (node?.id && node?.price != null) {
-        priceMap.set(node.id, node.price);
-      }
-    });
+    const pricedComponents = await enrichComponentsWithUnitCents(admin, components);
 
-    const compareAtCents = components.reduce((sum, component) => {
-      const gid = component.id.startsWith("gid://")
-        ? component.id
-        : `gid://shopify/ProductVariant/${component.id}`;
-      const price = Number(priceMap.get(gid) || 0);
-      return sum + Math.round(price * 100) * component.quantity;
+    const compareAtCents = pricedComponents.reduce((sum, component) => {
+      return sum + component.unitCents * component.quantity;
     }, 0);
 
     const counts = getCounts(components);
@@ -400,7 +484,7 @@ export const action = async ({ request }) => {
     const signaturePayload = buildBundleSignaturePayload({
       bundleId,
       rulebookId: rulebook.id,
-      components,
+      components: pricedComponents,
       discountedCents,
       signatureVersion: SIGNATURE_VERSION,
     });
@@ -416,6 +500,7 @@ export const action = async ({ request }) => {
       discountLabel,
       signature,
       signatureVersion: SIGNATURE_VERSION,
+      components: pricedComponents,
       pathPrefix,
     });
   } catch (error) {
