@@ -17,7 +17,17 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "typecheck": "react-router typegen && tsc --noEmit"
+    "typecheck": "react-router typegen && tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:live": "BUNDLE_TEST_MODE=live playwright test e2e/bundle-builder.spec.ts",
+    "test:e2e:recurring": "BUNDLE_TEST_MODE=live playwright test e2e/recurring-parallel.spec.ts",
+    "test:e2e:lambdatest": "playwright test -c playwright.lambdatest.config.ts e2e/bundle-builder.spec.ts",
+    "test:e2e:lambdatest:desktop": "LT_MATRIX=desktop playwright test -c playwright.lambdatest.config.ts e2e/bundle-builder.spec.ts",
+    "test:e2e:lambdatest:ios": "LT_MATRIX=ios playwright test -c playwright.lambdatest.config.ts e2e/bundle-builder.spec.ts",
+    "test:e2e:lambdatest:recurring": "BUNDLE_TEST_MODE=live playwright test -c playwright.lambdatest.config.ts e2e/recurring-parallel.spec.ts",
+    "test:e2e:lambdatest:recurring:desktop": "LT_MATRIX=desktop BUNDLE_TEST_MODE=live playwright test -c playwright.lambdatest.config.ts e2e/recurring-parallel.spec.ts",
+    "test:e2e:lambdatest:recurring:ios": "LT_MATRIX=ios BUNDLE_TEST_MODE=live playwright test -c playwright.lambdatest.config.ts e2e/recurring-parallel.spec.ts",
+    "test:e2e:install": "playwright install chromium webkit"
   },
   "type": "module",
   "engines": {
@@ -40,6 +50,7 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@shopify/api-codegen-preset": "^1.2.0",
     "@shopify/polaris-types": "^1.0.1",
     "@types/eslint": "^9.6.1",

@@ -1,15 +1,21 @@
-{%- assign heading = block.settings.heading -%}
-{%- if heading == blank -%}
-  {%- assign heading = 'bundle_builder.default_heading' | t -%}
-{%- endif -%}
-{%- assign description = block.settings.description -%}
-{%- if description == blank -%}
-  {%- assign description = 'bundle_builder.default_description' | t -%}
-{%- endif -%}
+{%- assign heading = block.settings.heading | strip -%}
+{%- assign description = block.settings.description | strip -%}
 {%- assign parent_product = block.settings.parent_product -%}
 {%- assign parent_variant_id = '' -%}
-{%- if parent_product != blank and parent_product.selected_or_first_available_variant != blank -%}
-  {%- assign parent_variant_id = parent_product.selected_or_first_available_variant.id -%}
+{%- if parent_product != blank -%}
+  {%- assign resolved_parent_variant = blank -%}
+  {%- for variant in parent_product.variants -%}
+    {%- if variant.available -%}
+      {%- assign resolved_parent_variant = variant -%}
+      {%- break -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if resolved_parent_variant == blank and parent_product.variants.size > 0 -%}
+    {%- assign resolved_parent_variant = parent_product.variants.first -%}
+  {%- endif -%}
+  {%- if resolved_parent_variant != blank -%}
+    {%- assign parent_variant_id = resolved_parent_variant.id -%}
+  {%- endif -%}
 {%- endif -%}
 
 {%- assign rulebooks = shop.metafields.bundle_builder.rulebooks.value -%}
@@ -46,23 +52,31 @@
     --bb-accent: {{ block.settings.accent_color }};
     --bb-button-ink: {{ block.settings.button_text_color }};
     --bb-border: {{ block.settings.border_color }};
+    --bb-main-border-color: {{ block.settings.main_section_border_color }};
+    --bb-main-border-width: {{ block.settings.main_section_border_width }}px;
+    --bb-footer-border-color: {{ block.settings.footer_section_border_color }};
+    --bb-footer-border-width: {{ block.settings.footer_section_border_width }}px;
     --bb-radius: {{ block.settings.corner_radius }}px;
     --bb-shadow-opacity: {{ block.settings.shadow_opacity | divided_by: 100.0 }};
-    --bb-heading-font: {{ block.settings.heading_font }};
-    --bb-body-font: {{ block.settings.body_font }};
   "
   data-bundle-version="v1"
   data-bundle-config-id="{{ selected_rulebook.id | default: 'bundle-config-1' }}"
   data-categories="{% if selected_rulebook != blank %}{{ selected_rulebook.categories | json | escape }}{% else %}{{ fallback_categories_json | escape }}{% endif %}"
-  data-add-text="{{ 'bundle_builder.add' | t | escape }}"
-  data-remove-text="{{ 'bundle_builder.remove' | t | escape }}"
+  data-add-text="Add to Bundle"
+  data-remove-text="Remove from Bundle"
   data-parent-variant-id="{{ parent_variant_id }}"
   data-proxy-path="{{ block.settings.proxy_path | default: '/apps/bundle-builder-1' }}"
 >
-  <div class="bundle-builder__header">
-    <h2 class="bundle-builder__title">{{ heading | escape }}</h2>
-    <p class="bundle-builder__description">{{ description | escape }}</p>
-  </div>
+  {%- if heading != blank or description != blank -%}
+    <div class="bundle-builder__header">
+      {%- if heading != blank -%}
+        <h2 class="bundle-builder__title">{{ heading | escape }}</h2>
+      {%- endif -%}
+      {%- if description != blank -%}
+        <p class="bundle-builder__description">{{ description | escape }}</p>
+      {%- endif -%}
+    </div>
+  {%- endif -%}
 
   <div class="bundle-builder__body">
     <div class="bundle-builder__panels">
@@ -84,38 +98,43 @@
               </span>
             </div>
             <ul class="bundle-builder__list" data-role-list="{{ category.key }}">
+              {%- assign has_renderable_products = false -%}
               {%- if products_list and products_list.size > 0 -%}
                 {%- for product in products_list -%}
                   {%- assign variant = product.selected_or_first_available_variant -%}
-                  <li
-                    class="bundle-builder__item"
-                    data-variant-id="{{ variant.id }}"
-                    data-role="{{ category.key }}"
-                    data-price="{{ variant.price | divided_by: 100.0 }}"
-                    data-price-cents="{{ variant.price }}"
-                  >
-                    <div class="bundle-builder__item-main">
-                      {%- if product.featured_image -%}
-                        <img
-                          width="100"
-                          height="100"
-                          class="bundle-builder__item-image"
-                          src="{{ product.featured_image | image_url: width: 100, height: 100, crop: 'center' }}"
-                          alt="{{ product.title | escape }}"
-                          loading="lazy"
-                        >
-                      {%- endif -%}
-                      <div class="bundle-builder__item-info">
-                        <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
-                        <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
-                        <button type="button" class="bundle-builder__item-toggle" data-action="toggle">
-                          {{ 'bundle_builder.add' | t }}
-                        </button>
+                  {%- if variant != blank and variant.available -%}
+                    {%- assign has_renderable_products = true -%}
+                    <li
+                      class="bundle-builder__item"
+                      data-variant-id="{{ variant.id }}"
+                      data-role="{{ category.key }}"
+                      data-price="{{ variant.price | divided_by: 100.0 }}"
+                      data-price-cents="{{ variant.price }}"
+                    >
+                      <div class="bundle-builder__item-main">
+                        {%- if product.featured_image -%}
+                          <img
+                            width="100"
+                            height="125"
+                            class="bundle-builder__item-image"
+                            src="{{ product.featured_image | image_url: width: 100 }}"
+                            alt="{{ product.title | escape }}"
+                            loading="lazy"
+                          >
+                        {%- endif -%}
+                        <div class="bundle-builder__item-info">
+                          <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
+                          <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
+                          <button type="button" class="button button-secondary bundle-builder__item-toggle" data-action="toggle">
+                            Add to Bundle
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
+                    </li>
+                  {%- endif -%}
                 {%- endfor -%}
-              {%- else -%}
+              {%- endif -%}
+              {%- if has_renderable_products == false -%}
                 <li class="bundle-builder__empty">No products configured</li>
               {%- endif -%}
             </ul>
@@ -139,38 +158,43 @@
               <span class="bundle-builder__panel-subtitle">Select {{ min_count }}-{{ max_count }}</span>
             </div>
             <ul class="bundle-builder__list" data-role-list="{{ key }}">
+              {%- assign has_renderable_products = false -%}
               {%- if products_list and products_list.size > 0 -%}
                 {%- for product in products_list -%}
                   {%- assign variant = product.selected_or_first_available_variant -%}
-                  <li
-                    class="bundle-builder__item"
-                    data-variant-id="{{ variant.id }}"
-                    data-role="{{ key }}"
-                    data-price="{{ variant.price | divided_by: 100.0 }}"
-                    data-price-cents="{{ variant.price }}"
-                  >
-                    <div class="bundle-builder__item-main">
-                      {%- if product.featured_image -%}
-                        <img
-                          width="100"
-                          height="100"
-                          class="bundle-builder__item-image"
-                          src="{{ product.featured_image | image_url: width: 100, height: 100, crop: 'center' }}"
-                          alt="{{ product.title | escape }}"
-                          loading="lazy"
-                        >
-                      {%- endif -%}
-                      <div class="bundle-builder__item-info">
-                        <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
-                        <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
-                        <button type="button" class="bundle-builder__item-toggle" data-action="toggle">
-                          {{ 'bundle_builder.add' | t }}
-                        </button>
+                  {%- if variant != blank and variant.available -%}
+                    {%- assign has_renderable_products = true -%}
+                    <li
+                      class="bundle-builder__item"
+                      data-variant-id="{{ variant.id }}"
+                      data-role="{{ key }}"
+                      data-price="{{ variant.price | divided_by: 100.0 }}"
+                      data-price-cents="{{ variant.price }}"
+                    >
+                      <div class="bundle-builder__item-main">
+                        {%- if product.featured_image -%}
+                          <img
+                            width="100"
+                            height="125"
+                            class="bundle-builder__item-image"
+                            src="{{ product.featured_image | image_url: width: 100 }}"
+                            alt="{{ product.title | escape }}"
+                            loading="lazy"
+                          >
+                        {%- endif -%}
+                        <div class="bundle-builder__item-info">
+                          <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
+                          <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
+                          <button type="button" class="button button-secondary bundle-builder__item-toggle" data-action="toggle">
+                            Add to Bundle
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
+                    </li>
+                  {%- endif -%}
                 {%- endfor -%}
-              {%- else -%}
+              {%- endif -%}
+              {%- if has_renderable_products == false -%}
                 <li class="bundle-builder__empty">No products configured</li>
               {%- endif -%}
             </ul>
@@ -226,7 +250,7 @@
       >
         {{ 'bundle_builder.status_idle' | t }}
       </div>
-      <button type="button" class="bundle-builder__cta" data-bundle-action="commit">
+      <button type="button" class="button bundle-builder__cta" data-bundle-action="commit">
         {{ 'bundle_builder.cta_commit' | t }}
       </button>
       <div class="bundle-builder__proxy-warning" data-bundle-proxy-warning hidden></div>
@@ -313,27 +337,43 @@
     },
     {
       "type": "text",
-      "id": "heading_font",
-      "label": "Heading font stack",
-      "default": "\"Oswald\", \"Arial Narrow\", sans-serif"
-    },
-    {
-      "type": "text",
-      "id": "body_font",
-      "label": "Body font stack",
-      "default": "\"Helvetica Neue\", Helvetica, Arial, sans-serif"
-    },
-    {
-      "type": "text",
       "id": "heading",
-      "label": "t:bundle_builder.settings.heading",
-      "default": "Build your bundle"
+      "label": "t:bundle_builder.settings.heading"
     },
     {
       "type": "textarea",
       "id": "description",
-      "label": "t:bundle_builder.settings.description",
-      "default": "Choose your items and unlock your savings."
+      "label": "t:bundle_builder.settings.description"
+    },
+    {
+      "type": "color",
+      "id": "main_section_border_color",
+      "label": "Main section border color",
+      "default": "#DCDCDC"
+    },
+    {
+      "type": "range",
+      "id": "main_section_border_width",
+      "label": "Main section border width",
+      "min": 0,
+      "max": 6,
+      "step": 1,
+      "default": 1
+    },
+    {
+      "type": "color",
+      "id": "footer_section_border_color",
+      "label": "Footer section border color",
+      "default": "#DCDCDC"
+    },
+    {
+      "type": "range",
+      "id": "footer_section_border_width",
+      "label": "Footer section border width",
+      "min": 0,
+      "max": 6,
+      "step": 1,
+      "default": 1
     },
     {
       "type": "text",

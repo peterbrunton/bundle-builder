@@ -162,9 +162,13 @@
                     >
                       {%- liquid
                         assign bundle_discount_label = ''
+                        assign bundle_compare_at_cents = ''
                         for property in item.properties
                           if property.first == '_bundle_discount_label' and property.last != blank
                             assign bundle_discount_label = property.last
+                          endif
+                          if property.first == '_bundle_compare_at_cents' and property.last != blank
+                            assign bundle_compare_at_cents = property.last
                           endif
                         endfor
 
@@ -285,26 +289,8 @@
                     {% endif %}
                   {%- endif -%}
 
-                  {%- liquid
-                    assign bundle_compare_at_cents = ''
-                    assign bundle_discounted_cents = ''
-                    for property in item.properties
-                      if property.first == '_bundle_compare_at_cents' and property.last != blank
-                        assign bundle_compare_at_cents = property.last
-                      endif
-                      if property.first == '_bundle_discounted_cents' and property.last != blank
-                        assign bundle_discounted_cents = property.last
-                      endif
-                    endfor
-                  -%}
-
                   <div>
-                    {% if bundle_compare_at_cents != blank and bundle_discounted_cents != blank %}
-                      <span class="visually-hidden">{{ 'content.price_sale' | t }}</span>
-                      <span>{{ bundle_discounted_cents | plus: 0 | money }}</span>
-                      <span class="visually-hidden">{{ 'content.price_regular' | t }}</span>
-                      <s class="compare-at-price">{{ bundle_compare_at_cents | plus: 0 | money }}</s>
-                    {% elsif item.original_price != item.final_price %}
+                    {% if item.item_components.size == 0 and item.original_price != item.final_price %}
                       <span class="visually-hidden">{{ 'content.price_sale' | t }}</span>
                       <span>{{ item.final_price | money }}</span>
                       <span class="visually-hidden">{{ 'content.price_regular' | t }}</span>
@@ -315,7 +301,7 @@
                           {{ item.original_price | money }}
                         {% endif %}
                       </s>
-                    {% else %}
+                    {% elsif item.item_components.size == 0 %}
                       {% if item.variant.compare_at_price > item.original_price %}
                         <span class="visually-hidden">{{ 'content.price_sale' | t }}</span>
                       {% else %}
@@ -397,14 +383,29 @@
                 >
                   {%- liquid
                     if settings.currency_code_enabled_cart_items
-                      assign price = item.final_line_price | money_with_currency
+                      assign final_price = item.final_line_price | money_with_currency
+                      assign original_price = item.original_line_price | money_with_currency
                       assign unit_price = item.unit_price | money_with_currency
+                      if item.item_components.size != 0 and bundle_compare_at_cents != blank
+                        assign bundle_compare_at_price = bundle_compare_at_cents | plus: 0 | money_with_currency
+                      endif
                     else
-                      assign price = item.final_line_price | money
+                      assign final_price = item.final_line_price | money
+                      assign original_price = item.original_line_price | money
                       assign unit_price = item.unit_price | money
+                      if item.item_components.size != 0 and bundle_compare_at_cents != blank
+                        assign bundle_compare_at_price = bundle_compare_at_cents | plus: 0 | money
+                      endif
                     endif
                   -%}
-                  <text-component value="{{ price | strip_html }}">{{ price }}</text-component>
+
+                  {%- if item.item_components.size != 0 and bundle_compare_at_price != blank -%}
+                    <span class="cart-items__price--compare compare-at-price">{{ bundle_compare_at_price }}</span>
+                  {%- elsif item.final_line_price < item.original_line_price -%}
+                    <span class="cart-items__price--compare compare-at-price">{{ original_price }}</span>
+                  {%- endif -%}
+
+                  <text-component value="{{ final_price | strip_html }}">{{ final_price }}</text-component>
                   {%- if item.unit_price_measurement -%}
                     <div class="cart-items__price-unit cart-secondary-typography">
                       {% render 'unit-price', price: unit_price, measurement: item.unit_price_measurement %}
@@ -515,6 +516,10 @@
 
   .cart-items__details > * + *,
   .cart-items__bundle li {
+    margin-block-start: var(--margin-2xs);
+  }
+
+  .cart-items__bundle-compare-at {
     margin-block-start: var(--margin-2xs);
   }
 

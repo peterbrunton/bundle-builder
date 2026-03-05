@@ -248,6 +248,45 @@ const enrichComponentsWithUnitCents = async (admin, components) => {
   });
 };
 
+const toVariantGid = (variantId) =>
+  String(variantId || "").startsWith("gid://")
+    ? String(variantId)
+    : `gid://shopify/ProductVariant/${variantId}`;
+
+const toStorefrontVariantId = (variantId) => {
+  const value = String(variantId || "").trim();
+  if (!value) return "";
+  if (/^\d+$/.test(value)) return value;
+  const match = value.match(/gid:\/\/shopify\/ProductVariant\/(\d+)/);
+  return match ? match[1] : "";
+};
+
+const loadParentVariantSnapshot = async (admin, parentVariantId) => {
+  const id = toVariantGid(parentVariantId);
+  const response = await adminGraphqlWithRetry(
+    admin,
+    `#graphql
+      query ParentVariantSnapshot($id: ID!) {
+        node(id: $id) {
+          ... on ProductVariant {
+            id
+            title
+            inventoryPolicy
+            inventoryQuantity
+            product {
+              id
+              title
+              status
+            }
+          }
+        }
+      }`,
+    { variables: { id } },
+  );
+  const data = await response.json();
+  return data?.data?.node || null;
+};
+
 const normalizeRulebooks = (rulebooks) => {
   if (!Array.isArray(rulebooks) || rulebooks.length === 0) {
     return [DEFAULT_RULEBOOK];
@@ -518,6 +557,19 @@ export const action = async ({ request }) => {
     const secret = await getOrCreateSignatureSecret(admin, session.shop);
     const rulebooks = await loadRulebooks(admin);
     const rulebook = selectRulebook(rulebooks, rulebookId);
+    const parentVariantGid = toVariantGid(parentVariantId);
+    const parentVariantStorefrontId =
+      toStorefrontVariantId(parentVariantId) || toStorefrontVariantId(parentVariantGid);
+    const parentVariantSnapshot = await loadParentVariantSnapshot(
+      admin,
+      parentVariantId,
+    ).catch((error) => {
+      console.error("[bundle-add] parent snapshot failed", {
+        parentVariantId,
+        error: String(error?.message || error),
+      });
+      return null;
+    });
     const { categories, tiers } = rulebook;
 
     const categoryMap = new Map(
@@ -558,7 +610,7 @@ export const action = async ({ request }) => {
 
     const items = [
       {
-        id: parentVariantId,
+        id: parentVariantStorefrontId || parentVariantId,
         quantity: 1,
         properties: {
           _bundle_id: bundleId,
@@ -581,73 +633,111 @@ export const action = async ({ request }) => {
       shop: session.shop,
       bundleId,
       parentVariantId,
+      parentVariantGid,
+      parentVariantStorefrontId,
+      parentVariantSnapshot,
       componentCount: components.length,
       compareAtCents,
       discountedCents,
     });
 
-    const storefrontHost = getStorefrontHost(request, session.shop);
-    const storefrontOrigin = `https://${storefrontHost}`;
+    // Try the shopper's storefront host first (market/channel accurate), then
+    // fall back to canonical myshopify host for resilience.
+    const storefrontHostFromRequest = getStorefrontHost(request, session.shop);
+    const storefrontHostCanonical = safeHost(session.shop);
+    const storefrontHosts = [
+      ...new Set([storefrontHostFromRequest, storefrontHostCanonical].filter(Boolean)),
+    ];
     const cookie = request.headers.get("cookie") || "";
     const storefrontPassword = process.env.BUNDLE_STOREFRONT_PASSWORD || "";
     const cartCookieHeader = cartToken ? `cart=${cartToken}` : "";
     const baseCookieHeader = [cartCookieHeader, cookie].filter(Boolean).join("; ");
-    let cartResponse = await fetch(`${storefrontOrigin}/cart/add.js`, {
-      method: "POST",
-      redirect: "manual",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Origin: storefrontOrigin,
-        Referer: `${storefrontOrigin}/`,
-        ...(baseCookieHeader ? { Cookie: baseCookieHeader } : {}),
-      },
-      body: JSON.stringify({ items }),
-    });
+    const attemptHostAdd = async (host) => {
+      const origin = `https://${host}`;
+      let response = await fetch(`${origin}/cart/add.js`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Origin: origin,
+          Referer: `${origin}/`,
+          ...(baseCookieHeader ? { Cookie: baseCookieHeader } : {}),
+        },
+        body: JSON.stringify({ items }),
+      });
 
-    if (cartResponse.status >= 300 && cartResponse.status < 400) {
-      const location = cartResponse.headers.get("location") || "";
-      if (location.includes("/password") && storefrontPassword) {
-        const passwordCookie = await getStorefrontCookie(storefrontHost, storefrontPassword);
-        const unlockedCookieHeader = [cartCookieHeader, cookie, passwordCookie]
-          .filter(Boolean)
-          .join("; ");
-        cartResponse = await fetch(`${storefrontOrigin}/cart/add.js`, {
-          method: "POST",
-          redirect: "manual",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            Origin: storefrontOrigin,
-            Referer: `${storefrontOrigin}/`,
-            ...(unlockedCookieHeader ? { Cookie: unlockedCookieHeader } : {}),
-          },
-          body: JSON.stringify({ items }),
-        });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location") || "";
+        if (location.includes("/password") && storefrontPassword) {
+          const passwordCookie = await getStorefrontCookie(host, storefrontPassword);
+          const unlockedCookieHeader = [cartCookieHeader, cookie, passwordCookie]
+            .filter(Boolean)
+            .join("; ");
+          response = await fetch(`${origin}/cart/add.js`, {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              Origin: origin,
+              Referer: `${origin}/`,
+              ...(unlockedCookieHeader ? { Cookie: unlockedCookieHeader } : {}),
+            },
+            body: JSON.stringify({ items }),
+          });
+        }
       }
-    }
 
-    if (cartResponse.status >= 300 && cartResponse.status < 400) {
-      const location = cartResponse.headers.get("location");
-      console.error("[bundle-add] cart/add redirected", {
-        status: cartResponse.status,
+      return { host, origin, response };
+    };
+
+    let cartResponse = null;
+    let storefrontHost = storefrontHosts[0] || "";
+    let storefrontOrigin = storefrontHost ? `https://${storefrontHost}` : "";
+    const addAttempts = [];
+    for (const host of storefrontHosts) {
+      const { origin, response } = await attemptHostAdd(host);
+      const location = response.headers.get("location") || "";
+      const attempt = {
+        host,
+        status: response.status,
         location,
-      });
-      return json(
-        { error: "Cart add redirected", status: cartResponse.status, location },
-        { status: 502 },
-      );
+      };
+      if (response.ok) {
+        addAttempts.push(attempt);
+        cartResponse = response;
+        storefrontHost = host;
+        storefrontOrigin = origin;
+        console.info("[bundle-add] cart/add success", attempt);
+        break;
+      }
+
+      const detail = await response.text().catch(() => "");
+      attempt.detail = detail?.slice(0, 500);
+      addAttempts.push(attempt);
+      console.warn("[bundle-add] cart/add attempt failed", attempt);
     }
 
-    if (!cartResponse.ok) {
-      const detail = await cartResponse.text();
-      console.error("[bundle-add] cart/add failed", {
-        status: cartResponse.status,
-        detail: detail?.slice(0, 500),
+    if (!cartResponse) {
+      const lastAttempt = addAttempts[addAttempts.length - 1] || {};
+      console.error("[bundle-add] cart/add failed all hosts", {
+        parentVariantId,
+        parentVariantGid,
+        parentVariantSnapshot,
+        attempts: addAttempts,
       });
       return json(
-        { error: "Cart add failed", detail },
-        { status: cartResponse.status },
+        {
+          error: "Cart add failed",
+          detail: lastAttempt.detail || "All cart/add attempts failed",
+          attempts: addAttempts.map(({ host, status, location }) => ({
+            host,
+            status,
+            location,
+          })),
+        },
+        { status: lastAttempt.status || 502 },
       );
     }
 
@@ -673,6 +763,11 @@ export const action = async ({ request }) => {
         signatureVersion: SIGNATURE_VERSION,
         pathPrefix,
         storefrontHost,
+        addAttempts: addAttempts.map(({ host, status, location }) => ({
+          host,
+          status,
+          location,
+        })),
         cartAdd: cartAddPayload,
         cart,
         cartToken: cartTokenValue,
