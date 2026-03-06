@@ -1,5 +1,5 @@
 import { useFetcher, useLoaderData } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { authenticate } from "../shopify.server";
 
 const json = (data, init) =>
@@ -11,6 +11,7 @@ const json = (data, init) =>
 const DEFAULT_RULEBOOK = {
   id: "bundle-config-1",
   isDefault: true,
+  priceBasis: "price",
   categories: [
     { key: "full", label: "Full", min: 1, max: 2 },
     { key: "small", label: "Small", min: 2, max: 4 },
@@ -39,6 +40,9 @@ const DEFAULT_RULEBOOK = {
     },
   ],
 };
+
+const normalizePriceBasis = (value) =>
+  String(value || "").toLowerCase() === "compare_at" ? "compare_at" : "price";
 
 const coerceCategories = (value) => {
   if (!Array.isArray(value)) return DEFAULT_RULEBOOK.categories;
@@ -109,6 +113,7 @@ const normalizeRulebooks = (rulebooks) => {
       return {
         id: nextUniqueId(rulebook?.id, index),
         isDefault: Boolean(rulebook?.isDefault),
+        priceBasis: normalizePriceBasis(rulebook?.priceBasis),
         categories,
         tiers,
       };
@@ -140,6 +145,7 @@ const deriveRulebooksFallback = (categories, tiers) => {
     {
       id: "bundle-config-1",
       isDefault: true,
+      priceBasis: "price",
       categories,
       tiers,
     },
@@ -324,6 +330,7 @@ export default function SettingsPage() {
       {
         id: getNextRulebookId(current),
         isDefault: false,
+        priceBasis: "price",
         categories: [...DEFAULT_RULEBOOK.categories],
         tiers: [...DEFAULT_RULEBOOK.tiers],
       },
@@ -488,6 +495,23 @@ export default function SettingsPage() {
                     Remove configuration
                   </s-button>
                 </s-stack>
+
+                <s-section heading="Pricing">
+                  <s-stack gap="base">
+                    <s-select
+                      label="Price basis for discounts"
+                      value={rulebook.priceBasis || "price"}
+                      onChange={(event) =>
+                        updateRulebook(rulebookIndex, {
+                          priceBasis: event.currentTarget.value,
+                        })
+                      }
+                    >
+                      <option value="price">Current variant price</option>
+                      <option value="compare_at">Compare-at price (fallback to current)</option>
+                    </s-select>
+                  </s-stack>
+                </s-section>
 
                 <s-section heading="Categories">
                   <s-stack gap="base">

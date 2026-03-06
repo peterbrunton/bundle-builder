@@ -35,6 +35,7 @@ const getCounts = (components) =>
 const DEFAULT_RULEBOOK = {
   id: "bundle-config-1",
   isDefault: true,
+  priceBasis: "price",
   categories: [
     { key: "full", label: "Full", min: 1, max: 2 },
     { key: "small", label: "Small", min: 2, max: 4 },
@@ -63,6 +64,9 @@ const DEFAULT_RULEBOOK = {
     },
   ],
 };
+
+const normalizePriceBasis = (value) =>
+  String(value || "").toLowerCase() === "compare_at" ? "compare_at" : "price";
 
 const DEFAULT_TIER_RULES = [
   {
@@ -170,7 +174,7 @@ const adminGraphqlWithRetry = async (admin, query, options) => {
   throw lastError || new Error("Shopify admin request failed");
 };
 
-const enrichComponentsWithUnitCents = async (admin, components) => {
+const enrichComponentsWithUnitCents = async (admin, components, priceBasis = "price") => {
   const variantIds = components.map((component) =>
     component.id.startsWith("gid://")
       ? component.id
@@ -184,6 +188,7 @@ const enrichComponentsWithUnitCents = async (admin, components) => {
           ... on ProductVariant {
             id
             price
+            compareAtPrice
           }
         }
       }`,
@@ -191,9 +196,13 @@ const enrichComponentsWithUnitCents = async (admin, components) => {
   );
   const variantData = await variantResponse.json();
   const priceMap = new Map();
+  const compareAtPriceMap = new Map();
   (variantData?.data?.nodes || []).forEach((node) => {
     if (node?.id && node?.price != null) {
       priceMap.set(node.id, node.price);
+    }
+    if (node?.id && node?.compareAtPrice != null) {
+      compareAtPriceMap.set(node.id, node.compareAtPrice);
     }
   });
 
@@ -202,11 +211,18 @@ const enrichComponentsWithUnitCents = async (admin, components) => {
       ? component.id
       : `gid://shopify/ProductVariant/${component.id}`;
     const price = Number(priceMap.get(gid) || 0);
-    const unitCents = Math.max(0, Math.round(price * 100));
+    const compareAtPrice = Number(compareAtPriceMap.get(gid) || 0);
+    const basePrice =
+      priceBasis === "compare_at" && compareAtPrice > 0 ? compareAtPrice : price;
+    const unitCents = Math.max(0, Math.round(basePrice * 100));
+    const saleUnitCents = Math.max(0, Math.round(price * 100));
+    const compareAtUnitCents = Math.max(0, Math.round(compareAtPrice * 100));
     return {
       ...component,
       id: gid,
       unitCents,
+      saleUnitCents,
+      compareAtUnitCents,
     };
   });
 };
@@ -222,6 +238,7 @@ const normalizeRulebooks = (rulebooks) => {
       return {
         id: String(rulebook?.id || "").trim() || `bundle-config-${index + 1}`,
         isDefault: Boolean(rulebook?.isDefault),
+        priceBasis: normalizePriceBasis(rulebook?.priceBasis),
         categories,
         tiers,
       };
@@ -274,7 +291,7 @@ const loadRulebooks = async (admin) => {
     tiers = DEFAULT_RULEBOOK.tiers;
   }
   return normalizeRulebooks([
-    { id: "bundle-config-1", isDefault: true, categories, tiers },
+    { id: "bundle-config-1", isDefault: true, priceBasis: "price", categories, tiers },
   ]);
 };
 
@@ -466,7 +483,11 @@ export const action = async ({ request }) => {
       }
     }
 
-    const pricedComponents = await enrichComponentsWithUnitCents(admin, components);
+    const pricedComponents = await enrichComponentsWithUnitCents(
+      admin,
+      components,
+      rulebook.priceBasis,
+    );
 
     const compareAtCents = pricedComponents.reduce((sum, component) => {
       return sum + component.unitCents * component.quantity;
@@ -495,6 +516,7 @@ export const action = async ({ request }) => {
 
     return json({
       bundleId,
+      priceBasis: rulebook.priceBasis || "price",
       compareAtCents,
       discountedCents,
       discountLabel,
