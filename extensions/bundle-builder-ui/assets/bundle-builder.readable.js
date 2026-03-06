@@ -1,418 +1,726 @@
 "use strict";
 (function () {
-  const s = (l, u = 0) => {
-      const o = Number.parseInt(l, 10);
-      return Number.isNaN(o) ? u : o;
-    },
-    D = () => `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    q = async (l, u, o = 5e3) => {
-      const h = new AbortController(),
-        c = setTimeout(() => h.abort(), o);
+  // --- small helpers ---------------------------------------------------------
+
+  const parseIntOrFallback = (value, fallback = 0) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  };
+
+  const generateBundleId = () =>
+    `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const fetchWithTimeout = async (url, fetchOptions, timeoutMs = 5000) => {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...fetchOptions, signal: abortController.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const parseJsonOrFallback = (jsonString, fallbackValue) => {
+    try {
+      const parsed = JSON.parse(jsonString || "");
+      return parsed == null ? fallbackValue : parsed;
+    } catch (_err) {
+      return fallbackValue;
+    }
+  };
+
+  // Aggregate selected items by role => { [roleKey]: totalQuantity }
+  const countSelectedByRole = (selectedMap) => {
+    const roleCounts = {};
+    selectedMap.forEach((item) => {
+      const roleKey = item.role || "unknown";
+      roleCounts[roleKey] = (roleCounts[roleKey] || 0) + item.quantity;
+    });
+    return roleCounts;
+  };
+
+  const setStatusText = (statusEl, text, isReady) => {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    if (isReady) statusEl.setAttribute("data-state", "ready");
+    else statusEl.removeAttribute("data-state");
+  };
+
+  // --- main bundle-builder init ---------------------------------------------
+
+  const initBundleBuilder = (rootEl) => {
+    var cachedTiers, cachedCategories;
+
+    // DOM refs
+    const statusEl = rootEl.querySelector("[data-bundle-status]");
+    const commitButton = rootEl.querySelector("[data-bundle-action='commit']");
+    const toggleButtons = Array.from(rootEl.querySelectorAll("[data-action='toggle']"));
+    const previewEl = rootEl.querySelector("[data-bundle-preview]");
+    const bundleCountEl = rootEl.querySelector("[data-bundle-count]");
+    const tiersListEl = rootEl.querySelector("[data-bundle-tiers]");
+    const proxyWarningEl = rootEl.querySelector("[data-bundle-proxy-warning]");
+
+    const pricingWrapEl = rootEl.querySelector("[data-bundle-pricing]");
+    const basePriceEl = rootEl.querySelector("[data-bundle-price-base]");
+    const discountedPriceEl = rootEl.querySelector("[data-bundle-price-discounted]");
+    const perUnitPriceEl = rootEl.querySelector("[data-bundle-price-per-unit]");
+
+    // Copy / config from data-attrs
+    const addText = rootEl.dataset.addText || "Add";
+    const removeText = rootEl.dataset.removeText || "Remove";
+    const parentVariantId = rootEl.dataset.parentVariantId;
+    const currencyCode = rootEl.dataset.currencyCode || "USD";
+    const bundleConfigId = rootEl.dataset.bundleConfigId || "";
+
+    const rulebookStorageKey = `bundle_builder_rulebook_${bundleConfigId || "default"}`;
+
+    const defaultStatusText = (statusEl?.textContent) || "";
+    const readyStatusText = statusEl?.getAttribute("data-ready-text") || "";
+    const invalidStatusText = statusEl?.getAttribute("data-invalid-text") || "";
+
+    // selection state: Map<variantId, { role, quantity, image }>
+    const selectedVariants = new Map();
+    let liveQuoteDebounceTimer = null;
+    let liveQuoteRequestSeq = 0;
+
+    // Categories: [{ key, label, min, max }]
+    let categories = parseJsonOrFallback(rootEl.dataset.categories, []);
+    if (!Array.isArray(categories) || !categories.length) {
+      categories = [
+        { key: "full", label: "Full", min: 1, max: 2 },
+        { key: "small", label: "Small", min: 2, max: 4 },
+      ];
+    }
+
+    // Tiers: [{ percent, requirements: { [roleKey]: {min,max} } }]
+    let tiers = parseJsonOrFallback(tiersListEl?.dataset?.bundleTiers, []);
+
+    // Load cached rulebook if needed
+    if ((!Array.isArray(tiers) || !tiers.length) && window.localStorage) {
+      const cached = parseJsonOrFallback(window.localStorage.getItem(rulebookStorageKey), null);
+      cachedTiers = cached?.tiers;
+      if (cachedTiers?.length) {
+        tiers = cached.tiers;
+        cachedCategories = cached?.categories;
+        if (cachedCategories?.length) categories = cached.categories;
+      }
+    }
+
+    // --- UI formatting -------------------------------------------------------
+
+    const formatMoney = (cents) => {
       try {
-        return await fetch(l, { ...u, signal: h.signal });
-      } finally {
-        clearTimeout(c);
+        return new Intl.NumberFormat(void 0, {
+          style: "currency",
+          currency: currencyCode,
+        }).format((Number(cents) || 0) / 100);
+      } catch {
+        return `${((Number(cents) || 0) / 100).toFixed(2)} ${currencyCode}`;
       }
-    },
-    T = (l, u) => {
-      try {
-        const o = JSON.parse(l || "");
-        return o == null ? u : o;
-      } catch (o) {
-        return u;
+    };
+
+    const renderPricing = (pricingResponse) => {
+      if (!pricingWrapEl || !basePriceEl || !discountedPriceEl || !perUnitPriceEl) return;
+
+      if (!pricingResponse) {
+        pricingWrapEl.hidden = true;
+        basePriceEl.textContent = "--";
+        discountedPriceEl.textContent = "--";
+        perUnitPriceEl.textContent = "--";
+        return;
       }
-    },
-    E = (l) => {
-      const u = {};
-      return (
-        l.forEach((o) => {
-          const h = o.role || "unknown";
-          u[h] = (u[h] || 0) + o.quantity;
-        }),
-        u
+
+      const baseCents = Math.max(0, parseIntOrFallback(pricingResponse.compareAtCents, 0));
+      const discountedCents = Math.max(
+        0,
+        parseIntOrFallback(pricingResponse.discountedCents, 0)
       );
-    },
-    x = (l, u, o) => {
-      l &&
-        ((l.textContent = u),
-        o
-          ? l.setAttribute("data-state", "ready")
-          : l.removeAttribute("data-state"));
-    },
-    H = (l) => {
-      var u, o, h;
-      const c = l.querySelector("[data-bundle-status]"),
-        v = l.querySelector("[data-bundle-action='commit']"),
-        j = Array.from(l.querySelectorAll("[data-action='toggle']")),
-        I = l.querySelector("[data-bundle-preview]"),
-        O = l.querySelector("[data-bundle-count]"),
-        b = l.querySelector("[data-bundle-tiers]"),
-        A = l.querySelector("[data-bundle-proxy-warning]"),
-        R = l.dataset.addText || "Add",
-        U = l.dataset.removeText || "Remove",
-        L = l.dataset.parentVariantId,
-        C = l.dataset.bundleConfigId || "",
-        J = `bundle_builder_rulebook_${C || "default"}`,
-        V = (c == null ? void 0 : c.textContent) || "",
-        F = (c == null ? void 0 : c.getAttribute("data-ready-text")) || "",
-        G = (c == null ? void 0 : c.getAttribute("data-invalid-text")) || "",
-        m = new Map();
-      let f = T(l.dataset.categories, []);
-      (!Array.isArray(f) || !f.length) &&
-        (f = [
-          { key: "full", label: "Full", min: 1, max: 2 },
-          { key: "small", label: "Small", min: 2, max: 4 },
-        ]);
-      let g = T(
-        (u = b == null ? void 0 : b.dataset) == null ? void 0 : u.bundleTiers,
-        [],
+
+      const totalUnits = Array.isArray(pricingResponse.components)
+        ? pricingResponse.components.reduce(
+            (sum, component) =>
+              sum + Math.max(1, parseIntOrFallback(component.quantity, 1)),
+            0
+          )
+        : 0;
+
+      const perUnitCents = totalUnits > 0 ? Math.round(discountedCents / totalUnits) : 0;
+
+      pricingWrapEl.hidden = false;
+      basePriceEl.textContent = formatMoney(baseCents);
+      discountedPriceEl.textContent = formatMoney(discountedCents);
+      perUnitPriceEl.textContent = formatMoney(perUnitCents);
+    };
+
+    const getVariantNumericId = (value) => {
+      const str = String(value || "").trim();
+      if (!str) return "";
+      if (/^\d+$/.test(str)) return str;
+      const match = str.match(/gid:\/\/shopify\/ProductVariant\/(\d+)/);
+      return match ? match[1] : "";
+    };
+
+    const buildQuotedComponentMap = (pricingResponse) => {
+      const map = new Map();
+      if (!Array.isArray(pricingResponse?.components)) return map;
+      pricingResponse.components.forEach((component) => {
+        const gid = String(component?.id || "");
+        if (!gid) return;
+        map.set(gid, component);
+        const numeric = getVariantNumericId(gid);
+        if (numeric) map.set(numeric, component);
+      });
+      return map;
+    };
+
+    const renderItemPricing = (pricingResponse) => {
+      const itemEls = Array.from(rootEl.querySelectorAll(".bundle-builder__item"));
+      const quotedMap = buildQuotedComponentMap(pricingResponse);
+      const baseCents = Math.max(0, parseIntOrFallback(pricingResponse?.compareAtCents, 0));
+      const discountedCents = Math.max(
+        0,
+        parseIntOrFallback(pricingResponse?.discountedCents, 0)
       );
-      if ((!Array.isArray(g) || !g.length) && window.localStorage) {
-        const e = T(window.localStorage.getItem(J), null);
-        (o = e == null ? void 0 : e.tiers) != null &&
-          o.length &&
-          ((g = e.tiers),
-          (h = e.categories) != null && h.length && (f = e.categories));
-      }
-      const _ = (e) => {
-          if (A) {
-            if (!e) {
-              ((A.hidden = !0), (A.textContent = ""));
-              return;
-            }
-            ((A.textContent = e), (A.hidden = !1));
-          }
-        },
-        $ = () => {
-          var e;
-          if (l.dataset.proxyPath) return l.dataset.proxyPath;
-          const t =
-            (e = window.localStorage) == null
-              ? void 0
-              : e.getItem("bundle_builder_proxy_path");
-          return t ? ((l.dataset.proxyPath = t), t) : "/apps/bundle-builder-1";
-        },
-        K = (e) => {
-          var t;
-          e &&
-            ((l.dataset.proxyPath = e),
-            (t = window.localStorage) == null ||
-              t.setItem("bundle_builder_proxy_path", e));
-        },
-        M = () => {
-          const e = E(m);
-          return f.every((t) => {
-            const a = e[t.key] || 0,
-              r = s(t.min, 0),
-              n = t.max === null || t.max === "" ? null : s(t.max, 0);
-            return !(a < r || (n != null && a > n));
-          });
-        },
-        P = (e, t) => {
-          const a = e.querySelector("[data-action='toggle']");
-          a &&
-            ((a.textContent = t ? U : R),
-            t
-              ? a.setAttribute("data-selected", "true")
-              : a.removeAttribute("data-selected"));
-        },
-        Q = () => {
-          if (!I) return;
-          I.innerHTML = "";
-          const e = Array.from(m.entries()),
-            t = e.reduce((a, [, r]) => a + r.quantity, 0);
-          (O && (O.textContent = String(t)),
-            e.forEach(([, a]) => {
-              const r = document.createElement("div");
-              r.className = "bundle-builder__preview-tile";
-              const n = document.createElement("img");
-              ((n.alt = ""),
-                (n.loading = "lazy"),
-                (n.src = a.image || ""),
-                r.appendChild(n),
-                I.appendChild(r));
-            }));
-        },
-        z = () => {
-          const e = Array.from(
-            (b == null ? void 0 : b.querySelectorAll("[data-tier]")) || [],
-          );
-          if (!e.length || !g.length) return;
-          e.forEach((n) => n.removeAttribute("data-active"));
-          const t = E(m),
-            a = g
-              .filter((n) => {
-                const i = (n == null ? void 0 : n.requirements) || {};
-                return Object.entries(i).every(([p, d]) => {
-                  const w = t[p] || 0,
-                    y = s(d == null ? void 0 : d.min, 0),
-                    k =
-                      (d == null ? void 0 : d.max) === null ||
-                      (d == null ? void 0 : d.max) === ""
-                        ? null
-                        : s(d == null ? void 0 : d.max, 0);
-                  return !(w < y || (k != null && w > k));
-                });
-              })
-              .reduce(
-                (n, i) => (n ? (s(i.percent, 0) > s(n.percent, 0) ? i : n) : i),
-                null,
-              );
-          if (!a) return;
-          const r = e.find(
-            (n) => n.getAttribute("data-tier") === String(a.percent),
-          );
-          r && r.setAttribute("data-active", "true");
-        },
-        W = (e, t) => {
-          if (!b) return;
-          const a = Array.isArray(t) && t.length ? t : f;
-          if (((f = a), (b.innerHTML = ""), !Array.isArray(e) || !e.length)) {
-            const n = document.createElement("li");
-            ((n.textContent = "No offers configured yet."),
-              b.appendChild(n),
-              (b.dataset.bundleTiers = "[]"),
-              (g = []));
-            return;
-          }
-          const r = [...e].sort(
-            (n, i) =>
-              s(n == null ? void 0 : n.percent, 0) -
-              s(i == null ? void 0 : i.percent, 0),
-          );
-          (r.forEach((n) => {
-            const i = document.createElement("li");
-            i.setAttribute("data-tier", String(n.percent));
-            const p = a.map((d) => {
-              var w;
-              const y =
-                  ((w = n == null ? void 0 : n.requirements) == null
-                    ? void 0
-                    : w[d.key]) || {},
-                k = s(y == null ? void 0 : y.min, 0),
-                B =
-                  (y == null ? void 0 : y.max) === null ||
-                  (y == null ? void 0 : y.max) === ""
-                    ? null
-                    : s(y == null ? void 0 : y.max, 0);
-              return B != null ? `${k}-${B} ${d.label}` : `${k} ${d.label}`;
-            });
-            ((i.textContent = `Pick ${p.join(" & ")} -> ${n.percent}% off`),
-              b.appendChild(i));
-          }),
-            (b.dataset.bundleTiers = JSON.stringify(r)),
-            (g = r),
-            z());
-        },
-        S = () => {
-          const e = m.size > 0,
-            t = e && M();
-          (e ? (t ? x(c, F, !0) : x(c, G, !1)) : x(c, V, !1),
-            v && (v.disabled = !t),
-            Q(),
-            z());
-        },
-        X = () => {
-          (m.clear(),
-            j.forEach((e) => {
-              const t = e.closest(".bundle-builder__item");
-              t && P(t, !1);
-            }),
-            S());
-        },
-        Y = (e) => {
-          var t;
-          const a = e.getAttribute("data-variant-id"),
-            r = e.getAttribute("data-role"),
-            n =
-              (t = e.querySelector(".bundle-builder__item-image")) == null
-                ? void 0
-                : t.getAttribute("src");
-          if (!a || !r) return;
-          if (m.has(a)) {
-            (m.delete(a), P(e, !1), S());
-            return;
-          }
-          const i = f.find((p) => p.key === r);
-          if (i) {
-            const p = E(m),
-              d = i.max === null || i.max === "" ? null : s(i.max, 0);
-            if (d != null && (p[r] || 0) + 1 > d) return;
-          }
-          (m.set(a, { role: r, quantity: 1, image: n }), P(e, !0), S());
-        },
-        Z = async () => {
-          if (!b || g.length) return;
-          const e = $(),
-            t = `${e}/price?config=1&rulebookId=${encodeURIComponent(C || "")}`,
-            a = [12e3, 8e3, 8e3];
-          for (let r = 0; r < a.length; r += 1)
-            try {
-              const n = await q(
-                t,
-                { method: "GET", headers: { Accept: "application/json" } },
-                a[r],
-              );
-              if (!n.ok) {
-                if (r === a.length - 1) {
-                  _("Bundle offers are unavailable right now. Refresh in a moment.");
-                }
-                continue;
-              }
-              const i = await n.json(),
-                p = i == null ? void 0 : i.rulebook;
-              if (!p) {
-                if (r === a.length - 1) {
-                  _("Bundle offers are unavailable right now. Refresh in a moment.");
-                }
-                continue;
-              }
-              return (
-                window.localStorage &&
-                  window.localStorage.setItem(
-                    J,
-                    JSON.stringify({
-                      categories: p.categories || [],
-                      tiers: p.tiers || [],
-                    }),
-                  ),
-                _(""),
-                W(p.tiers || [], p.categories || []),
-                !0
-              );
-            } catch (n) {
-              if (r === a.length - 1) {
-                _("Bundle offers are unavailable right now. Refresh in a moment.");
-                return !1;
-              }
-              await new Promise((i) => setTimeout(i, 500 * (r + 1)));
-            }
-          return !1;
-        },
-        ee = async (e, t) => {
-          try {
-            const a = await q(
-              `${$()}/price`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Accept: "application/json",
-                },
-                body: JSON.stringify({
-                  bundleId: e,
-                  rulebookId: C,
-                  components: t,
-                }),
-              },
-              8e3,
-            );
-            if (a.status === 404)
-              return (
-                _("Bundle pricing is unavailable. Check the app proxy path."),
-                null
-              );
-            if (!a.ok)
-              return (_("Bundle pricing failed. Please try again."), null);
-            _("");
-            const r = await a.json();
-            return (r != null && r.pathPrefix && K(r.pathPrefix), r);
-          } catch (a) {
-            return (
-              _("Bundle pricing is unavailable. Check the app proxy path."),
-              null
-            );
-          }
-        };
-      let te = !g.length,
-        ae = 0;
-      const re = async () => {
-        if (!te) return;
-        const e = await Z();
-        if (e) {
-          te = !1;
+      const ratio = baseCents > 0 ? discountedCents / baseCents : 1;
+
+      itemEls.forEach((itemEl) => {
+        const variantId = itemEl.getAttribute("data-variant-id") || "";
+        const currentEl = itemEl.querySelector("[data-item-price-current]");
+        const compareEl = itemEl.querySelector("[data-item-price-compare]");
+        if (!currentEl || !compareEl || !variantId) return;
+
+        const defaultSaleCents = Math.max(
+          0,
+          parseIntOrFallback(itemEl.getAttribute("data-price-cents"), 0)
+        );
+        const defaultCompareCents = Math.max(
+          0,
+          parseIntOrFallback(itemEl.getAttribute("data-compare-at-cents"), 0)
+        );
+
+        const selected = selectedVariants.has(variantId);
+        const quoted = selected ? quotedMap.get(variantId) : null;
+
+        if (!quoted) {
+          // Initial card state rule:
+          // - if compare-at exists, it is the visible base price
+          // - no strike-through until a bundle discount is applied
+          const initialBaseCents = defaultCompareCents > 0 ? defaultCompareCents : defaultSaleCents;
+          currentEl.textContent = formatMoney(initialBaseCents);
+          compareEl.hidden = true;
+          compareEl.textContent = "";
           return;
         }
-        ae += 1;
-        if (ae < 10) {
-          setTimeout(re, 3e3);
+
+        const quotedBasisCents = Math.max(0, parseIntOrFallback(quoted?.unitCents, 0));
+        const quotedCompareAtCents = Math.max(
+          0,
+          parseIntOrFallback(quoted?.compareAtUnitCents, 0)
+        );
+        const discountedUnitCents = Math.max(0, Math.round(quotedBasisCents * ratio));
+        const strikeCents = quotedCompareAtCents > 0 ? quotedCompareAtCents : quotedBasisCents;
+
+        currentEl.textContent = formatMoney(discountedUnitCents);
+        if (strikeCents > discountedUnitCents) {
+          compareEl.hidden = false;
+          compareEl.textContent = formatMoney(strikeCents);
+        } else {
+          compareEl.hidden = true;
+          compareEl.textContent = "";
         }
-      };
-      (j.forEach((e) => {
-        const t = e.closest(".bundle-builder__item");
-        t && e.addEventListener("click", () => Y(t));
-      }),
-        g.length || re(),
-        v == null ||
-          v.addEventListener("click", async () => {
-            if (!M() || m.size === 0) {
-              S();
-              return;
+      });
+    };
+
+    const setProxyWarning = (message) => {
+      if (!proxyWarningEl) return;
+      if (!message) {
+        proxyWarningEl.hidden = true;
+        proxyWarningEl.textContent = "";
+        return;
+      }
+      proxyWarningEl.textContent = message;
+      proxyWarningEl.hidden = false;
+    };
+
+    // --- proxy path helpers --------------------------------------------------
+
+    const getProxyPath = () => {
+      if (rootEl.dataset.proxyPath) return rootEl.dataset.proxyPath;
+
+      const stored = window.localStorage?.getItem("bundle_builder_proxy_path");
+      if (stored) {
+        rootEl.dataset.proxyPath = stored;
+        return stored;
+      }
+      return "/apps/bundle-builder-1";
+    };
+
+    const persistProxyPath = (pathPrefix) => {
+      if (!pathPrefix) return;
+      rootEl.dataset.proxyPath = pathPrefix;
+      window.localStorage?.setItem("bundle_builder_proxy_path", pathPrefix);
+    };
+
+    // --- selection / validation ---------------------------------------------
+
+    // Valid means every category satisfies its min/max constraints
+    // against the current selectedVariants map.
+    const isSelectionValid = () => {
+      const counts = countSelectedByRole(selectedVariants);
+      return categories.every((cat) => {
+        const count = counts[cat.key] || 0;
+        const min = parseIntOrFallback(cat.min, 0);
+        const max = cat.max === null || cat.max === "" ? null : parseIntOrFallback(cat.max, 0);
+        return !(count < min || (max != null && count > max));
+      });
+    };
+
+    const setItemSelectedUI = (itemEl, isSelected) => {
+      const toggleBtn = itemEl.querySelector("[data-action='toggle']");
+      if (!toggleBtn) return;
+
+      toggleBtn.textContent = isSelected ? removeText : addText;
+      if (isSelected) toggleBtn.setAttribute("data-selected", "true");
+      else toggleBtn.removeAttribute("data-selected");
+    };
+
+    // Re-render preview from scratch so UI always reflects map state
+    // (avoid stale DOM from partial updates).
+    const renderPreview = () => {
+      if (!previewEl) return;
+      previewEl.innerHTML = "";
+
+      const selectedEntries = Array.from(selectedVariants.entries());
+      const totalSelected = selectedEntries.reduce((sum, [, item]) => sum + item.quantity, 0);
+
+      if (bundleCountEl) bundleCountEl.textContent = String(totalSelected);
+
+      selectedEntries.forEach(([, item]) => {
+        const tileEl = document.createElement("div");
+        tileEl.className = "bundle-builder__preview-tile";
+
+        const imgEl = document.createElement("img");
+        imgEl.alt = "";
+        imgEl.loading = "lazy";
+        imgEl.src = item.image || "";
+
+        tileEl.appendChild(imgEl);
+        previewEl.appendChild(tileEl);
+      });
+    };
+
+    // Find the highest matching tier for the current selection
+    // and mark it active in the offers list.
+    const updateActiveTier = () => {
+      const tierEls = Array.from(tiersListEl?.querySelectorAll("[data-tier]") || []);
+      if (!tierEls.length || !tiers.length) return;
+
+      tierEls.forEach((el) => el.removeAttribute("data-active"));
+
+      const counts = countSelectedByRole(selectedVariants);
+
+      const bestTier = tiers
+        .filter((tier) => {
+          const requirements = tier?.requirements || {};
+          return Object.entries(requirements).every(([roleKey, req]) => {
+            const count = counts[roleKey] || 0;
+            const min = parseIntOrFallback(req?.min, 0);
+            const max = req?.max === null || req?.max === "" ? null : parseIntOrFallback(req?.max, 0);
+            return !(count < min || (max != null && count > max));
+          });
+        })
+        .reduce((best, tier) => {
+          if (!best) return tier;
+          return parseIntOrFallback(tier.percent, 0) > parseIntOrFallback(best.percent, 0)
+            ? tier
+            : best;
+        }, null);
+
+      if (!bestTier) return;
+
+      const activeEl = tierEls.find(
+        (el) => el.getAttribute("data-tier") === String(bestTier.percent)
+      );
+      activeEl && activeEl.setAttribute("data-active", "true");
+    };
+
+    // Render the offers panel from rulebook data returned by proxy config.
+    // We normalize by sorting on percent so display order is stable.
+    const renderTiers = (nextTiers, nextCategories) => {
+      if (!tiersListEl) return;
+
+      const categoriesToUse =
+        Array.isArray(nextCategories) && nextCategories.length ? nextCategories : categories;
+
+      categories = categoriesToUse;
+      tiersListEl.innerHTML = "";
+
+      if (!Array.isArray(nextTiers) || !nextTiers.length) {
+        const li = document.createElement("li");
+        li.textContent = "No offers configured yet.";
+        tiersListEl.appendChild(li);
+        tiersListEl.dataset.bundleTiers = "[]";
+        tiers = [];
+        return;
+      }
+
+      const sorted = [...nextTiers].sort(
+        (a, b) => parseIntOrFallback(a?.percent, 0) - parseIntOrFallback(b?.percent, 0)
+      );
+
+      sorted.forEach((tier) => {
+        const li = document.createElement("li");
+        li.setAttribute("data-tier", String(tier.percent));
+
+        const requirementText = categoriesToUse.map((cat) => {
+          const req = tier?.requirements?.[cat.key] || {};
+          const min = parseIntOrFallback(req?.min, 0);
+          const max = req?.max === null || req?.max === "" ? null : parseIntOrFallback(req?.max, 0);
+          return max != null ? `${min}-${max} ${cat.label}` : `${min} ${cat.label}`;
+        });
+
+        li.textContent = `Pick ${requirementText.join(" & ")} -> ${tier.percent}% off`;
+        tiersListEl.appendChild(li);
+      });
+
+      tiersListEl.dataset.bundleTiers = JSON.stringify(sorted);
+      tiers = sorted;
+      updateActiveTier();
+    };
+
+    // Central UI refresh: status pill, CTA enabled state, preview, active tier.
+    // Call this after any selection mutation.
+    const refreshUI = () => {
+      const hasSelection = selectedVariants.size > 0;
+      const valid = hasSelection && isSelectionValid();
+
+      if (!hasSelection) setStatusText(statusEl, defaultStatusText, false);
+      else if (valid) setStatusText(statusEl, readyStatusText, true);
+      else setStatusText(statusEl, invalidStatusText, false);
+
+      if (commitButton) commitButton.disabled = !valid;
+
+      renderPreview();
+      updateActiveTier();
+      queueLiveQuote();
+    };
+
+    // Full reset after successful add-to-cart.
+    // We also clear pricing summary so the next bundle starts clean.
+    const resetSelection = () => {
+      selectedVariants.clear();
+
+      toggleButtons.forEach((btn) => {
+        const itemEl = btn.closest(".bundle-builder__item");
+        if (itemEl) setItemSelectedUI(itemEl, false);
+      });
+
+      renderPricing(null);
+      renderItemPricing(null);
+      refreshUI();
+    };
+
+    // Toggle one card in or out of selectedVariants with max-per-role guard.
+    const toggleSelectionForItem = (itemEl) => {
+      const variantId = itemEl.getAttribute("data-variant-id");
+      const roleKey = itemEl.getAttribute("data-role");
+      const imageUrl = itemEl.querySelector(".bundle-builder__item-image")?.getAttribute("src");
+
+      if (!variantId || !roleKey) return;
+
+      // remove
+      if (selectedVariants.has(variantId)) {
+        selectedVariants.delete(variantId);
+        setItemSelectedUI(itemEl, false);
+        refreshUI();
+        return;
+      }
+
+      // enforce per-role max
+      const category = categories.find((cat) => cat.key === roleKey);
+      if (category) {
+        const counts = countSelectedByRole(selectedVariants);
+        const max = category.max === null || category.max === "" ? null : parseIntOrFallback(category.max, 0);
+        if (max != null && (counts[roleKey] || 0) + 1 > max) return;
+      }
+
+      // add
+      selectedVariants.set(variantId, { role: roleKey, quantity: 1, image: imageUrl });
+      setItemSelectedUI(itemEl, true);
+      refreshUI();
+    };
+
+    // --- networking ----------------------------------------------------------
+
+    // Fetches server-authoritative rulebook config used for offer rendering.
+    // Retries are intentionally long on first attempt to tolerate cold starts.
+    const fetchRulebookIfNeeded = async () => {
+      if (!tiersListEl) return false;
+
+      const proxyPath = getProxyPath();
+      const url = `${proxyPath}/price?config=1&rulebookId=${encodeURIComponent(bundleConfigId || "")}`;
+      const attemptTimeouts = [12000, 8000, 8000];
+
+      for (let attempt = 0; attempt < attemptTimeouts.length; attempt += 1) {
+        try {
+          const resp = await fetchWithTimeout(
+            url,
+            { method: "GET", headers: { Accept: "application/json" } },
+            attemptTimeouts[attempt]
+          );
+
+          if (!resp.ok) {
+            if (attempt === attemptTimeouts.length - 1) {
+              setProxyWarning("Bundle offers are unavailable right now. Refresh in a moment.");
             }
-            if (!L) return;
-            const e = D(),
-              t = Array.from(m.entries()).map(([n, i]) => ({
-                id: String(n),
-                quantity: i.quantity,
-                role: i.role,
-              }));
-            ((await ee(e, t)) ||
-              x(c, "Pricing unavailable. Adding bundle anyway.", !1),
-              (v.disabled = !0));
-            const a = document.cookie.match(/(?:^|; )cart=([^;]+)/),
-              r = a ? a[1] : "";
-            try {
-              const n = await q(
-                `${$()}/add-bundle`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Accept: "application/json",
-                  },
-                  credentials: "same-origin",
-                  body: JSON.stringify({
-                    bundleId: e,
-                    rulebookId: C,
-                    parentVariantId: L,
-                    components: t,
-                    cartToken: r,
-                  }),
-                },
-                12e3,
-              );
-              if (!n.ok) {
-                (x(c, "Unable to add bundle. Please try again.", !1),
-                  (v.disabled = !1));
-                return;
-              }
-              const i = await n.json().catch(() => null),
-                p = (i == null ? void 0 : i.cart) || null;
-              (i != null &&
-                i.cartToken &&
-                (document.cookie = `cart=${i.cartToken}; path=/; SameSite=Lax`),
-                document.dispatchEvent(
-                  new CustomEvent("cart:update", {
-                    bubbles: !0,
-                    detail: {
-                      resource: p,
-                      sourceId: "bundle-builder",
-                      data: {
-                        source: "bundle-builder",
-                        itemCount: p == null ? void 0 : p.item_count,
-                      },
-                    },
-                  }),
-                ),
-                X());
-            } catch (n) {
-              v.disabled = !1;
+            continue;
+          }
+
+          const json = await resp.json();
+          const rulebook = json?.rulebook;
+
+          if (!rulebook) {
+            if (attempt === attemptTimeouts.length - 1) {
+              setProxyWarning("Bundle offers are unavailable right now. Refresh in a moment.");
             }
-          }),
-        S());
-    },
-    N = () => document.querySelectorAll(".bundle-builder").forEach(H);
+            continue;
+          }
+
+          // Cache config so storefront can still render offers even if
+          // proxy is temporarily unavailable on later page loads.
+          if (window.localStorage) {
+            window.localStorage.setItem(
+              rulebookStorageKey,
+              JSON.stringify({
+                categories: rulebook.categories || [],
+                tiers: rulebook.tiers || [],
+              })
+            );
+          }
+
+          setProxyWarning("");
+          renderTiers(rulebook.tiers || [], rulebook.categories || []);
+          return true;
+        } catch (_err) {
+          if (attempt === attemptTimeouts.length - 1) {
+            setProxyWarning("Bundle offers are unavailable right now. Refresh in a moment.");
+            return false;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
+
+      return false;
+    };
+
+    // Quote endpoint computes:
+    // - canonical component pricing
+    // - tier match
+    // - discountedCents
+    // - signature for transform verification
+    const requestBundlePricing = async (bundleId, components) => {
+      try {
+        const resp = await fetchWithTimeout(
+          `${getProxyPath()}/price`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              bundleId,
+              rulebookId: bundleConfigId,
+              components,
+            }),
+          },
+          8000
+        );
+
+        if (resp.status === 404) {
+          setProxyWarning("Bundle pricing is unavailable. Check the app proxy path.");
+          return null;
+        }
+        if (!resp.ok) {
+          setProxyWarning("Bundle pricing failed. Please try again.");
+          return null;
+        }
+
+        setProxyWarning("");
+
+        const json = await resp.json();
+        // pathPrefix is returned by Shopify proxy flow and may differ per shop.
+        if (json?.pathPrefix) persistProxyPath(json.pathPrefix);
+        // If initial config retries failed during cold start, try again now that
+        // pricing succeeded and the app proxy/backend are clearly reachable.
+        if ((!Array.isArray(tiers) || !tiers.length) && tiersListEl) {
+          fetchRulebookIfNeeded().catch(() => {});
+        }
+        return json;
+      } catch (_err) {
+        setProxyWarning("Bundle pricing is unavailable. Check the app proxy path.");
+        return null;
+      }
+    };
+
+    const queueLiveQuote = () => {
+      if (liveQuoteDebounceTimer) clearTimeout(liveQuoteDebounceTimer);
+
+      if (!isSelectionValid() || selectedVariants.size === 0) {
+        liveQuoteRequestSeq += 1;
+        renderPricing(null);
+        renderItemPricing(null);
+        return;
+      }
+
+      liveQuoteDebounceTimer = setTimeout(async () => {
+        const requestSeq = ++liveQuoteRequestSeq;
+        const bundleId = generateBundleId();
+        const components = Array.from(selectedVariants.entries()).map(([variantId, item]) => ({
+          id: String(variantId),
+          quantity: item.quantity,
+          role: item.role,
+        }));
+        const pricing = await requestBundlePricing(bundleId, components);
+        if (requestSeq !== liveQuoteRequestSeq) return;
+        if (pricing) {
+          renderPricing(pricing);
+          renderItemPricing(pricing);
+        }
+      }, 400);
+    };
+
+    // --- tier retry loop -----------------------------------------------------
+
+    let shouldFetchRulebook = !tiers.length;
+    let rulebookRetryCount = 0;
+
+    // Background retry loop used only when tier config isn't available yet.
+    // Keeps trying a limited number of times, then stops quietly.
+    const retryFetchRulebook = async () => {
+      if (!shouldFetchRulebook) return;
+
+      const ok = await fetchRulebookIfNeeded();
+      if (ok) {
+        shouldFetchRulebook = false;
+        return;
+      }
+
+      rulebookRetryCount += 1;
+      if (rulebookRetryCount < 10) setTimeout(retryFetchRulebook, 3000);
+    };
+
+    // --- event wiring --------------------------------------------------------
+
+    toggleButtons.forEach((btn) => {
+      const itemEl = btn.closest(".bundle-builder__item");
+      if (!itemEl) return;
+      btn.addEventListener("click", () => toggleSelectionForItem(itemEl));
+    });
+
+    // Always try to hydrate offers from proxy config so stale/empty Liquid data
+    // gets corrected even when cached tiers or initial markup are present.
+    // Keep retry loop only for empty initial state where cold starts are common.
+    fetchRulebookIfNeeded().catch(() => {});
+    if (!tiers.length) retryFetchRulebook();
+
+    // Commit sequence:
+    // 1) validate selection
+    // 2) request pricing quote
+    // 3) call add-bundle proxy (server signs + posts to cart/add.js)
+    // 4) emit cart:update so theme/cart drawer can refresh
+    commitButton?.addEventListener("click", async () => {
+      if (!isSelectionValid() || selectedVariants.size === 0) {
+        refreshUI();
+        return;
+      }
+      if (!parentVariantId) return;
+
+      const bundleId = generateBundleId();
+      const components = Array.from(selectedVariants.entries()).map(([variantId, item]) => ({
+        id: String(variantId),
+        quantity: item.quantity,
+        role: item.role,
+      }));
+
+      // Pricing call is primarily for UX preview and consistency.
+      // add-bundle still recomputes server-side authoritatively.
+      const pricing = await requestBundlePricing(bundleId, components);
+      if (!pricing) setStatusText(statusEl, "Pricing unavailable. Adding bundle anyway.", false);
+
+      renderPricing(pricing);
+      commitButton.disabled = true;
+
+      const cartCookieMatch = document.cookie.match(/(?:^|; )cart=([^;]+)/);
+      const cartToken = cartCookieMatch ? cartCookieMatch[1] : "";
+
+      try {
+        // Add through app proxy rather than direct /cart/add.js from browser,
+        // so signature + protected bundle properties are server-controlled.
+        const resp = await fetchWithTimeout(
+          `${getProxyPath()}/add-bundle`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              bundleId,
+              rulebookId: bundleConfigId,
+              parentVariantId,
+              components,
+              cartToken,
+            }),
+          },
+          12000
+        );
+
+        if (!resp.ok) {
+          setStatusText(statusEl, "Unable to add bundle. Please try again.", false);
+          commitButton.disabled = false;
+          return;
+        }
+
+        const payload = await resp.json().catch(() => null);
+        const cart = payload?.cart || null;
+
+        if (payload?.cartToken) {
+          document.cookie = `cart=${payload.cartToken}; path=/; SameSite=Lax`;
+        }
+
+        // Trigger theme listeners (drawer, mini cart, etc.) to refresh.
+        document.dispatchEvent(
+          new CustomEvent("cart:update", {
+            bubbles: true,
+            detail: {
+              resource: cart,
+              sourceId: "bundle-builder",
+              data: {
+                source: "bundle-builder",
+                itemCount: cart?.item_count,
+              },
+            },
+          })
+        );
+
+        resetSelection();
+      } catch (_err) {
+        commitButton.disabled = false;
+      }
+    });
+
+    // initial UI
+    renderItemPricing(null);
+    refreshUI();
+  };
+
+  const initAllBundleBuilders = () => {
+    document.querySelectorAll(".bundle-builder").forEach(initBundleBuilder);
+  };
+
   document.readyState === "loading"
-    ? document.addEventListener("DOMContentLoaded", N)
-    : N();
+    ? document.addEventListener("DOMContentLoaded", initAllBundleBuilders)
+    : initAllBundleBuilders();
 })();

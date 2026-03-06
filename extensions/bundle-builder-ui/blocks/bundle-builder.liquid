@@ -66,6 +66,7 @@
   data-remove-text="Remove from Bundle"
   data-parent-variant-id="{{ parent_variant_id }}"
   data-proxy-path="{{ block.settings.proxy_path | default: '/apps/bundle-builder-1' }}"
+  data-currency-code="{{ shop.currency }}"
 >
   {%- if heading != blank or description != blank -%}
     <div class="bundle-builder__header">
@@ -110,6 +111,7 @@
                       data-role="{{ category.key }}"
                       data-price="{{ variant.price | divided_by: 100.0 }}"
                       data-price-cents="{{ variant.price }}"
+                      data-compare-at-cents="{{ variant.compare_at_price | default: 0 }}"
                     >
                       <div class="bundle-builder__item-main">
                         {%- if product.featured_image -%}
@@ -125,7 +127,27 @@
                         <div class="bundle-builder__item-info">
                           <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
                           <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
-                          <button type="button" class="button button-secondary bundle-builder__item-toggle" data-action="toggle">
+                          <div class="bundle-builder__item-pricing" data-item-pricing>
+                            <span class="bundle-builder__item-price-current" data-item-price-current>
+                              {% if variant.compare_at_price and variant.compare_at_price > 0 %}
+                                {{ variant.compare_at_price | money }}
+                              {% else %}
+                                {{ variant.price | money }}
+                              {% endif %}
+                            </span>
+                            <span class="bundle-builder__item-price-compare" data-item-price-compare hidden>
+                              {% if variant.compare_at_price and variant.compare_at_price > 0 %}
+                                {{ variant.compare_at_price | money }}
+                              {% else %}
+                                {{ variant.price | money }}
+                              {% endif %}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            class="button button-secondary bundle-builder__item-toggle"
+                            data-action="toggle"
+                          >
                             Add to Bundle
                           </button>
                         </div>
@@ -170,6 +192,7 @@
                       data-role="{{ key }}"
                       data-price="{{ variant.price | divided_by: 100.0 }}"
                       data-price-cents="{{ variant.price }}"
+                      data-compare-at-cents="{{ variant.compare_at_price | default: 0 }}"
                     >
                       <div class="bundle-builder__item-main">
                         {%- if product.featured_image -%}
@@ -185,7 +208,27 @@
                         <div class="bundle-builder__item-info">
                           <span class="bundle-builder__item-title">{{ product.title | escape }}</span>
                           <span class="bundle-builder__item-meta">{{ variant.title | escape }}</span>
-                          <button type="button" class="button button-secondary bundle-builder__item-toggle" data-action="toggle">
+                          <div class="bundle-builder__item-pricing" data-item-pricing>
+                            <span class="bundle-builder__item-price-current" data-item-price-current>
+                              {% if variant.compare_at_price and variant.compare_at_price > 0 %}
+                                {{ variant.compare_at_price | money }}
+                              {% else %}
+                                {{ variant.price | money }}
+                              {% endif %}
+                            </span>
+                            <span class="bundle-builder__item-price-compare" data-item-price-compare hidden>
+                              {% if variant.compare_at_price and variant.compare_at_price > 0 %}
+                                {{ variant.compare_at_price | money }}
+                              {% else %}
+                                {{ variant.price | money }}
+                              {% endif %}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            class="button button-secondary bundle-builder__item-toggle"
+                            data-action="toggle"
+                          >
                             Add to Bundle
                           </button>
                         </div>
@@ -214,7 +257,7 @@
 
       <div class="bundle-builder__offers">
         <p class="bundle-builder__offers-title">Bundle offers</p>
-        {%- assign tiers = selected_rulebook.tiers | sort: "percent" -%}
+        {%- assign tiers = selected_rulebook.tiers | sort: 'percent' -%}
         {%- if tiers and tiers.size > 0 and selected_rulebook != blank -%}
           {%- assign tiers_json = tiers | json | escape -%}
           <ul class="bundle-builder__offers-list" data-bundle-tiers="{{ tiers_json }}">
@@ -240,6 +283,21 @@
             <li>No offers configured yet.</li>
           </ul>
         {%- endif -%}
+      </div>
+
+      <div class="bundle-builder__pricing" data-bundle-pricing hidden>
+        <div class="bundle-builder__pricing-row">
+          <span>Initial total</span>
+          <span data-bundle-price-base>--</span>
+        </div>
+        <div class="bundle-builder__pricing-row">
+          <span>Bundle total</span>
+          <span data-bundle-price-discounted>--</span>
+        </div>
+        <div class="bundle-builder__pricing-row">
+          <span>Discounted / unit</span>
+          <span data-bundle-price-per-unit>--</span>
+        </div>
       </div>
 
       <div
